@@ -288,6 +288,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="exercises.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -296,6 +297,7 @@
 
 const MUSCLES = ["Chest","Back","Shoulders","Biceps","Triceps","Quads","Hamstrings","Glutes","Calves","Core","Forearms","Other"];
 const KEY = "liftlog.v1";
+const LIB = (typeof CATALOG !== "undefined") ? CATALOG : []; // starter exercise library
 
 /* ---------- Storage ---------- */
 let DB = load();
@@ -554,24 +556,24 @@ function openSheet(html){ $("#sheet").innerHTML = `<div class="grab"></div>`+htm
 function closeSheet(){ $("#sheetBg").classList.remove("open"); }
 $("#sheetBg").addEventListener("click",e=>{ if(e.target===$("#sheetBg")) closeSheet(); });
 
+// find an existing user exercise by name, or create one from the library/custom input
+function ensureExercise(name, muscle){
+  let ex = DB.exercises.find(e=>e.name.toLowerCase()===name.toLowerCase());
+  if(!ex){ ex = { id:uid(), name, muscle }; DB.exercises.push(ex); save(); }
+  return ex;
+}
+
+let _pick = [];   // current rendered results for the add-exercise sheet
 function openAddExercise(){
   const today = todayWorkout(false);
   const used = new Set(today? today.entries.map(en=>en.exId) : []);
-  const list = DB.exercises.slice().sort((a,b)=>a.name.localeCompare(b.name));
-  const picks = list.map(e=>{
-    const pb = pbFor(e.id);
-    return `<div class="pick" data-pick="${e.id}" ${used.has(e.id)?'style="opacity:.4"':''}>
-      <div class="grow"><div style="font-weight:600">${esc(e.name)}</div><div class="tiny muted">${esc(e.muscle)}${pb?` · PB ${fmtKg(pb.weight)}×${pb.reps}`:""}</div></div>
-      ${used.has(e.id)?'<span class="tiny faint">added</span>':'<span class="muted">+</span>'}
-    </div>`;
-  }).join("");
 
   openSheet(`
     <h2>Add exercise</h2>
-    <input class="in" id="exFilter" placeholder="Search or type new name…" autocapitalize="words" autocomplete="off">
-    <div id="pickList" style="margin-top:12px;max-height:42vh;overflow-y:auto">${picks || '<div class="faint small center" style="padding:20px">No exercises yet — create your first below.</div>'}</div>
-    <hr class="hr">
+    <input class="in" id="exFilter" placeholder="Search ${LIB.length}+ exercises…" autocapitalize="words" autocomplete="off">
+    <div id="pickList" style="margin-top:12px;max-height:46vh;overflow-y:auto"></div>
     <div id="createArea" style="display:none">
+      <hr class="hr">
       <div class="field"><label>Muscle group</label>
         <select class="in" id="newMuscle">${MUSCLES.map(m=>`<option>${m}</option>`).join("")}</select>
       </div>
@@ -580,30 +582,59 @@ function openAddExercise(){
   `);
 
   const filter = $("#exFilter");
-  filter.addEventListener("input",()=>{
+  function renderPicks(){
     const q = filter.value.trim().toLowerCase();
-    $$(".pick",$("#pickList")).forEach(p=>{
-      const id = p.dataset.pick; const e = exById(id);
-      p.style.display = (!q || e.name.toLowerCase().includes(q)) ? "flex":"none";
-    });
-    // show create option if no exact match
-    const exact = DB.exercises.some(e=>e.name.toLowerCase()===q);
-    $("#createArea").style.display = (q && !exact) ? "block":"none";
-    $("#createBtn") && ($("#createBtn").textContent = `Create “${filter.value.trim()}” & add`);
-  });
+    const userNames = new Set(DB.exercises.map(e=>e.name.toLowerCase()));
 
+    // Your own exercises first (always shown; filtered when searching)
+    const mine = DB.exercises.filter(e=>!q || e.name.toLowerCase().includes(q))
+                             .sort((a,b)=>a.name.localeCompare(b.name));
+    // Library matches (only while searching, and not already in your list)
+    const lib = q ? LIB.filter(c=>c.n.toLowerCase().includes(q) && !userNames.has(c.n.toLowerCase())).slice(0,50) : [];
+
+    _pick = [];
+    mine.forEach(e=>_pick.push({type:"user", id:e.id, name:e.name, muscle:e.muscle}));
+    lib.forEach(c=>_pick.push({type:"lib", name:c.n, muscle:c.m, equip:c.e}));
+
+    const list = $("#pickList");
+    if(!_pick.length){
+      list.innerHTML = q
+        ? `<div class="faint small center" style="padding:20px">No match — create “${esc(filter.value.trim())}” below.</div>`
+        : `<div class="faint small center" style="padding:20px">Start typing to search the library,<br>or type a new name to create your own.</div>`;
+    } else {
+      const head = (mine.length && lib.length) ? mine.length : 0;
+      list.innerHTML = _pick.map((it,i)=>{
+        const pb = it.type==="user" ? pbFor(it.id) : null;
+        const isUsed = it.type==="user" && used.has(it.id);
+        const meta = [it.muscle, it.equip, pb?`PB ${fmtKg(pb.weight)}×${pb.reps}`:""].filter(Boolean).join(" · ");
+        const divider = (head && i===head) ? `<div class="tiny faint" style="margin:10px 2px 6px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Library</div>` : "";
+        return divider + `<div class="pick" data-i="${i}" ${isUsed?'style="opacity:.4"':''}>
+          <div class="grow"><div style="font-weight:600">${esc(it.name)}</div><div class="tiny muted">${esc(meta)}</div></div>
+          ${isUsed?'<span class="tiny faint">added</span>':'<span class="muted">+</span>'}
+        </div>`;
+      }).join("");
+    }
+
+    const exact = userNames.has(q) || LIB.some(c=>c.n.toLowerCase()===q);
+    $("#createArea").style.display = (q && !exact) ? "block":"none";
+    if(q && !exact) $("#createBtn").textContent = `Create “${filter.value.trim()}” & add`;
+  }
+
+  filter.addEventListener("input", renderPicks);
   $("#pickList").addEventListener("click",e=>{
-    const p = e.target.closest("[data-pick]"); if(!p) return;
-    if(p.style.opacity==="0.4") return; // already added
-    addEntry(p.dataset.pick);
+    const p = e.target.closest("[data-i]"); if(!p) return;
+    if(p.style.opacity==="0.4") return; // already added today
+    const it = _pick[+p.dataset.i];
+    const ex = it.type==="user" ? exById(it.id) : ensureExercise(it.name, it.muscle);
+    addEntry(ex.id);
   });
   $("#createBtn").addEventListener("click",()=>{
     const name = filter.value.trim(); if(!name) return;
-    const muscle = $("#newMuscle").value;
-    const ex = { id:uid(), name, muscle };
-    DB.exercises.push(ex); save();
+    const ex = ensureExercise(name, $("#newMuscle").value);
     addEntry(ex.id);
   });
+
+  renderPicks();
 }
 
 function addEntry(exId){

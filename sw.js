@@ -1,8 +1,9 @@
 /* Lift Log service worker — offline cache */
-const CACHE = "liftlog-v1";
+const CACHE = "liftlog-v2";
 const ASSETS = [
   "./",
   "./index.html",
+  "./exercises.js",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",
   "./icons/icon-192.png",
