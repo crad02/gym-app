@@ -117,6 +117,8 @@
   input.in:focus,select.in:focus{outline:none;border-color:var(--accent);}
   select.in{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%239a9aa3' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     background-repeat:no-repeat;background-position:right 12px center;padding-right:34px;}
+  .datepick{background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:9px 11px;border-radius:11px;color-scheme:dark;font-weight:600;font-size:15px;}
+  .datepick:focus{outline:none;border-color:var(--accent);}
 
   /* ---------- Empty state ---------- */
   .empty{text-align:center;color:var(--faint);padding:48px 20px;}
@@ -130,7 +132,7 @@
   .hint .pb{color:var(--gold);font-weight:700;}
 
   .set{
-    display:grid;grid-template-columns:auto 1fr 1fr auto;align-items:center;gap:8px;
+    display:grid;grid-template-columns:auto 1fr 1fr auto auto;align-items:center;gap:6px;
     padding:8px 0;border-top:1px solid var(--border);
   }
   .set .typetag{font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;width:62px;text-align:center;}
@@ -214,9 +216,10 @@
   <!-- ============ LOG / TODAY ============ -->
   <section id="screen-log" class="screen active">
     <div class="top">
-      <h1>Today</h1>
-      <span class="sub" id="todayDate"></span>
+      <h1 id="logTitle">Today</h1>
+      <input type="date" id="logDate" class="datepick">
     </div>
+    <div id="logSub" style="margin:-8px 2px 14px"></div>
     <div id="logBody"></div>
     <button class="btn primary full" id="addExerciseBtn">+ Add exercise</button>
     <div style="height:14px"></div>
@@ -226,6 +229,7 @@
   <!-- ============ HISTORY ============ -->
   <section id="screen-history" class="screen">
     <div class="top"><h1>History</h1></div>
+    <button class="btn full" id="addPastBtn" style="margin-bottom:14px">+ Add past workout</button>
     <div id="weekSummary"></div>
     <div id="historyBody"></div>
   </section>
@@ -236,7 +240,8 @@
       <h1>Exercises</h1>
       <span class="sub" id="exCount"></span>
     </div>
-    <input class="in" id="exSearch" placeholder="Search exercises…" style="margin-bottom:8px" autocapitalize="words">
+    <input class="in" id="exSearch" placeholder="Search your exercises…" style="margin-bottom:8px" autocapitalize="words">
+    <button class="btn full" id="addExToListBtn" style="margin-bottom:12px">+ Add exercise / personal best</button>
     <div id="exBody"></div>
   </section>
 
@@ -342,11 +347,12 @@ function toast(msg){
 /* ---------- Data helpers ---------- */
 function exById(id){ return DB.exercises.find(e=>e.id===id); }
 
-function todayWorkout(create){
-  let w = DB.workouts.find(w=>w.date===todayKey());
-  if(!w && create){ w={ id:uid(), date:todayKey(), entries:[] }; DB.workouts.push(w); }
+function workoutFor(dateKey, create){
+  let w = DB.workouts.find(w=>w.date===dateKey);
+  if(!w && create){ w={ id:uid(), date:dateKey, entries:[] }; DB.workouts.push(w); }
   return w;
 }
+function activeWorkout(create){ return workoutFor(editDate, create); }
 
 // best working set for an exercise: highest weight, tiebreak reps
 function pbFor(exId){
@@ -367,7 +373,7 @@ function pbFor(exId){
 
 // most recent prior working sets for an exercise (excludes today)
 function lastSession(exId){
-  const past = DB.workouts.filter(w=>w.date!==todayKey()).sort((a,b)=>b.date<a.date?-1:1);
+  const past = DB.workouts.filter(w=>w.date!==editDate).sort((a,b)=>b.date<a.date?-1:1);
   for(const w of past){
     const en = w.entries.find(e=>e.exId===exId);
     if(en){
@@ -382,6 +388,7 @@ function lastSession(exId){
    RENDER
    ============================================================ */
 let activeTab = "log";
+let editDate = todayKey();   // the date currently being logged / edited on the Log tab
 
 function render(){
   if(activeTab==="log") renderLog();
@@ -392,13 +399,19 @@ function render(){
 
 /* ---------- LOG ---------- */
 function renderLog(){
-  $("#todayDate").textContent = fullDate(todayKey());
-  const w = todayWorkout(false);
+  const isToday = editDate===todayKey();
+  $("#logTitle").textContent = isToday ? "Today" : "Past workout";
+  const di = $("#logDate"); di.max = todayKey(); di.value = editDate;
+  $("#logSub").innerHTML = isToday
+    ? `<span class="faint small">${fullDate(editDate)}</span>`
+    : `<span class="small muted">${fullDate(editDate)}</span> &nbsp;·&nbsp; <a class="link small" id="backToday">Back to today →</a>`;
+
+  const w = activeWorkout(false);
   const body = $("#logBody");
   $("#finishBtn").style.display = (w && w.entries.length) ? "block":"none";
 
   if(!w || !w.entries.length){
-    body.innerHTML = `<div class="empty"><div class="big">🏋️</div>No exercises logged today.<br>Tap “Add exercise” to start.</div>`;
+    body.innerHTML = `<div class="empty"><div class="big">🏋️</div>No exercises logged ${isToday?"today":"on this day"}.<br>Tap “Add exercise” to start.</div>`;
     return;
   }
 
@@ -419,7 +432,8 @@ function renderLog(){
         <span class="typetag ${s.type==='work'?'work':'warm'}">${s.type==='work'?'WORK':'WARMUP'}</span>
         <span class="val">${fmtKg(s.weight)}</span>
         <span class="val">${s.reps} <small>reps</small></span>
-        <button class="iconbtn" data-del-set="${i}:${si}">✕</button>
+        <button class="iconbtn" data-dup-set="${i}:${si}" aria-label="Repeat set" style="color:var(--accent);font-size:18px">⧉</button>
+        <button class="iconbtn" data-del-set="${i}:${si}" aria-label="Delete set">✕</button>
       </div>`;
     }).join("");
 
@@ -519,7 +533,7 @@ function renderEx(){
   if(q) list = list.filter(e=>e.name.toLowerCase().includes(q) || e.muscle.toLowerCase().includes(q));
 
   if(!DB.exercises.length){
-    body.innerHTML = `<div class="empty"><div class="big">📒</div>No exercises yet.<br>Add one while logging a workout.</div>`;
+    body.innerHTML = `<div class="empty"><div class="big">📒</div>No exercises yet.<br>Tap “Add exercise / personal best” above to start.</div>`;
     return;
   }
   if(!list.length){ body.innerHTML = `<div class="empty">No matches.</div>`; return; }
@@ -564,12 +578,15 @@ function ensureExercise(name, muscle){
 }
 
 let _pick = [];   // current rendered results for the add-exercise sheet
-function openAddExercise(){
-  const today = todayWorkout(false);
-  const used = new Set(today? today.entries.map(en=>en.exId) : []);
+function openAddExercise(opts){
+  opts = opts || {};
+  const onChoose = opts.onChoose || addEntry;
+  const title = opts.title || "Add exercise";
+  const wk = opts.markUsed===false ? null : activeWorkout(false);
+  const used = new Set(wk ? wk.entries.map(en=>en.exId) : []);
 
   openSheet(`
-    <h2>Add exercise</h2>
+    <h2>${title}</h2>
     <input class="in" id="exFilter" placeholder="Search ${LIB.length}+ exercises…" autocapitalize="words" autocomplete="off">
     <div id="pickList" style="margin-top:12px;max-height:46vh;overflow-y:auto"></div>
     <div id="createArea" style="display:none">
@@ -626,19 +643,19 @@ function openAddExercise(){
     if(p.style.opacity==="0.4") return; // already added today
     const it = _pick[+p.dataset.i];
     const ex = it.type==="user" ? exById(it.id) : ensureExercise(it.name, it.muscle);
-    addEntry(ex.id);
+    onChoose(ex.id);
   });
   $("#createBtn").addEventListener("click",()=>{
     const name = filter.value.trim(); if(!name) return;
     const ex = ensureExercise(name, $("#newMuscle").value);
-    addEntry(ex.id);
+    onChoose(ex.id);
   });
 
   renderPicks();
 }
 
 function addEntry(exId){
-  const w = todayWorkout(true);
+  const w = activeWorkout(true);
   if(!w.entries.some(en=>en.exId===exId)){
     const ex = exById(exId);
     w.entries.push({ exId, name:ex.name, sets:[] });
@@ -682,6 +699,15 @@ function openExDetail(exId){
       ${pb? `<div style="font-size:30px;font-weight:800">${fmtKg(pb.weight)} <span class="muted" style="font-size:18px">× ${pb.reps}</span></div><div class="faint small">${dateLabel(pb.date)}</div>`
           : '<div class="faint">Not set yet</div>'}
     </div>
+    <div class="grouphdr" style="margin-left:0">ADD A RESULT</div>
+    <div class="setform" style="margin-top:0">
+      <div class="field" style="margin:0"><label>Weight (kg)</label><input class="in" inputmode="decimal" id="resW" placeholder="0"></div>
+      <div class="field" style="margin:0"><label>Reps</label><input class="in" inputmode="numeric" id="resR" placeholder="0"></div>
+      <button class="btn primary" id="resAdd" data-res="${ex.id}" style="height:46px">Add</button>
+    </div>
+    <div class="field" style="margin-top:10px"><label>Date</label>
+      <input type="date" class="datepick" id="resDate" value="${todayKey()}" max="${todayKey()}" style="width:100%"></div>
+    <div class="tiny faint" style="margin:8px 0 2px">Logs a working set on that date — updates your PB if it beats it. Handy for loading old bests.</div>
     <div class="grouphdr" style="margin-left:0">SESSION HISTORY</div>
     ${rows}
     <hr class="hr">
@@ -700,9 +726,29 @@ function switchTab(tab){
   window.scrollTo(0,0);
   render();
 }
-$$("nav button").forEach(b=> b.addEventListener("click",()=>switchTab(b.dataset.tab)) );
+$$("nav button").forEach(b=> b.addEventListener("click",()=>{
+  if(b.dataset.tab==="log") editDate = todayKey();   // tapping Log always returns to today
+  switchTab(b.dataset.tab);
+}) );
 
-$("#addExerciseBtn").addEventListener("click", openAddExercise);
+$("#addExerciseBtn").addEventListener("click", ()=>openAddExercise());
+
+// Log-tab date controls
+$("#logDate").addEventListener("change",()=>{ editDate = $("#logDate").value || todayKey(); render(); });
+$("#logSub").addEventListener("click",e=>{ if(e.target.id==="backToday"){ editDate = todayKey(); render(); } });
+
+// History: log a workout for a past date
+$("#addPastBtn").addEventListener("click",()=>{
+  switchTab("log");
+  const d = $("#logDate");
+  try{ d.showPicker(); }catch(_){ d.focus(); }
+  toast("Pick the date, then add exercises");
+});
+
+// Exercises: add a lift to your list (then optionally enter a past best)
+$("#addExToListBtn").addEventListener("click",()=>{
+  openAddExercise({ markUsed:false, title:"Add exercise", onChoose:(id)=>{ render(); openExDetail(id); } });
+});
 
 $("#finishBtn").addEventListener("click",()=>{
   toast("Saved to history");
@@ -721,6 +767,8 @@ $("#logBody").addEventListener("click",e=>{
   }
   const add = e.target.closest("[data-addset]");
   if(add){ addSet(+add.dataset.addset); return; }
+  const dup = e.target.closest("[data-dup-set]");
+  if(dup){ const [ei,si]=dup.dataset.dupSet.split(":").map(Number); dupSet(ei,si); return; }
   const ds = e.target.closest("[data-del-set]");
   if(ds){ const [ei,si]=ds.dataset.delSet.split(":").map(Number); delSet(ei,si); return; }
   const de = e.target.closest("[data-del-entry]");
@@ -733,7 +781,7 @@ function addSet(entryIdx){
   const w = parseFloat($("[data-w]",form).value);
   const r = parseInt($("[data-r]",form).value,10);
   if(!(w>=0) || !(r>0)){ toast("Enter weight & reps"); return; }
-  const wk = todayWorkout(true);
+  const wk = activeWorkout(true);
   const prevPB = pbFor(wk.entries[entryIdx].exId);
   wk.entries[entryIdx].sets.push({ type, weight:w, reps:r });
   save();
@@ -747,13 +795,19 @@ function addSet(entryIdx){
     toast("Set added");
   }
 }
+function dupSet(entryIdx,setIdx){
+  const w = activeWorkout(false); if(!w) return;
+  const s = w.entries[entryIdx].sets[setIdx];
+  w.entries[entryIdx].sets.splice(setIdx+1, 0, {...s});
+  save(); render(); toast("Set repeated");
+}
 function delSet(entryIdx,setIdx){
-  const w = todayWorkout(false); if(!w) return;
+  const w = activeWorkout(false); if(!w) return;
   w.entries[entryIdx].sets.splice(setIdx,1);
   save(); render();
 }
 function delEntry(entryIdx){
-  const w = todayWorkout(false); if(!w) return;
+  const w = activeWorkout(false); if(!w) return;
   if(w.entries[entryIdx].sets.length && !confirm("Remove this exercise from today?")) return;
   w.entries.splice(entryIdx,1);
   if(!w.entries.length){ DB.workouts = DB.workouts.filter(x=>x!==w); }
@@ -777,6 +831,25 @@ $("#exBody").addEventListener("click",e=>{
   if(d) openExDetail(d.dataset.exDetail);
 });
 $("#sheet").addEventListener("click",e=>{
+  const res = e.target.closest("[data-res]");
+  if(res){
+    const id = res.dataset.res;
+    const date = $("#resDate").value || todayKey();
+    const wv = parseFloat($("#resW").value), rv = parseInt($("#resR").value,10);
+    if(!(wv>=0) || !(rv>0)){ toast("Enter weight & reps"); return; }
+    const prevPB = pbFor(id);
+    const wk = workoutFor(date, true);
+    let en = wk.entries.find(x=>x.exId===id);
+    if(!en){ const ex = exById(id); en = { exId:id, name:ex.name, sets:[] }; wk.entries.push(en); }
+    en.sets.push({ type:"work", weight:wv, reps:rv });
+    save();
+    const newPB = pbFor(id);
+    render();          // refresh the list behind the sheet
+    openExDetail(id);  // reopen detail with updated PB/history
+    if(!prevPB || newPB.weight>prevPB.weight || (newPB.weight===prevPB.weight && newPB.reps>prevPB.reps)) toast("🏆 New PB!");
+    else toast("Result added");
+    return;
+  }
   const del = e.target.closest("[data-del-ex]");
   if(del){
     if(!confirm("Delete this exercise and remove it from all workouts? This cannot be undone.")) return;
