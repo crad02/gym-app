@@ -208,6 +208,32 @@
 
   .hr{height:1px;background:var(--border);margin:14px 0;border:none;}
   a.link{color:var(--accent);text-decoration:none;font-weight:600;}
+
+  /* ---------- Sync badge ---------- */
+  .sync-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .sync-dot.synced{background:var(--good);}
+  .sync-dot.pending{background:var(--gold);}
+
+  /* ---------- Coach tab ---------- */
+  .group-tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px;scrollbar-width:none;}
+  .group-tabs::-webkit-scrollbar{display:none;}
+  .gtab{
+    padding:8px 16px;border-radius:999px;font-size:14px;font-weight:700;
+    border:1px solid var(--border);color:var(--muted);background:var(--surface-2);
+    white-space:nowrap;flex-shrink:0;transition:background .12s,color .12s;
+  }
+  .gtab.on{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .priority-badge{
+    display:inline-block;font-size:11px;font-weight:700;letter-spacing:.4px;
+    padding:3px 9px;border-radius:6px;margin-bottom:12px;
+  }
+  .priority-high{background:rgba(239,68,68,.15);color:#f87171;}
+  .priority-medium{background:rgba(245,179,66,.15);color:var(--gold);}
+  .priority-low{background:rgba(52,211,153,.15);color:var(--good);}
+  .focus-row{padding:11px 0;border-top:1px solid var(--border);}
+  .focus-ex{font-weight:700;font-size:15px;}
+  .focus-target{font-size:13px;color:var(--accent);font-weight:600;margin-top:3px;}
+  .focus-note{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.5;}
 </style>
 </head>
 <body>
@@ -223,7 +249,7 @@
     <div id="logBody"></div>
     <button class="btn primary full" id="addExerciseBtn">+ Add exercise</button>
     <div style="height:14px"></div>
-    <button class="btn ghost full small" id="finishBtn" style="display:none;color:var(--muted)">Finish &amp; clear today’s view</button>
+    <button class="btn ghost full small" id="finishBtn" style="display:none;color:var(--muted)">Finish &amp; clear today's view</button>
   </section>
 
   <!-- ============ HISTORY ============ -->
@@ -245,16 +271,27 @@
     <div id="exBody"></div>
   </section>
 
+  <!-- ============ COACH ============ -->
+  <section id="screen-coach" class="screen">
+    <div class="top">
+      <h1>Coach</h1>
+      <span class="sub" id="coachPlanDate"></span>
+    </div>
+    <div class="group-tabs" id="coachTabs"></div>
+    <div id="coachBody"></div>
+  </section>
+
   <!-- ============ SETTINGS ============ -->
   <section id="screen-more" class="screen">
     <div class="top"><h1>More</h1></div>
+    <div id="authCard"></div>
     <div class="card">
       <div class="row between"><span>Total workouts</span><b id="statWorkouts">0</b></div>
       <hr class="hr"><div class="row between"><span>Exercises tracked</span><b id="statEx">0</b></div>
       <hr class="hr"><div class="row between"><span>Total sets logged</span><b id="statSets">0</b></div>
     </div>
     <div class="card">
-      <div class="small muted" style="margin-bottom:10px">Your data lives only on this device. Back it up regularly.</div>
+      <div class="small muted" style="margin-bottom:10px">Export a backup of all your data.</div>
       <button class="btn full" id="exportBtn" style="margin-bottom:8px">⬇︎ Export backup (JSON)</button>
       <button class="btn full" id="importBtn" style="margin-bottom:8px">⬆︎ Import backup</button>
       <input type="file" id="importFile" accept="application/json,.json" style="display:none">
@@ -262,7 +299,7 @@
     <div class="card">
       <button class="btn full danger ghost" id="wipeBtn">Erase all data</button>
     </div>
-    <div class="center faint tiny" style="margin-top:18px">Lift Log · stored locally · kg</div>
+    <div class="center faint tiny" style="margin-top:18px">Lift Log · kg</div>
   </section>
 </div>
 
@@ -280,8 +317,12 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
     Exercises
   </button>
+  <button data-tab="coach">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+    Coach
+  </button>
   <button data-tab="more">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     More
   </button>
 </nav>
@@ -294,15 +335,24 @@
 <div class="toast" id="toast"></div>
 
 <script src="exercises.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 "use strict";
 /* ============================================================
    Lift Log — single-file PWA gym tracker
    ============================================================ */
 
+/* ---------- Supabase ---------- */
+const SUPABASE_URL = 'https://bqntqspsaobkeelaqjbw.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJxbnRxc3BzYW9ia2VlbGFxamJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzMTc0MjIsImV4cCI6MjA5Njg5MzQyMn0.XFaVcixhNaYuE2OW8MXVW7v9hYvOnD1PLR7bHtglgPA';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let currentUser = null;
+
 const MUSCLES = ["Chest","Back","Shoulders","Biceps","Triceps","Quads","Hamstrings","Glutes","Calves","Core","Forearms","Other"];
+const COACH_GROUPS = ["Back","Chest","Arms","Legs","Other"];
 const KEY = "liftlog.v1";
-const LIB = (typeof CATALOG !== "undefined") ? CATALOG : []; // starter exercise library
+const PLAN_KEY = "liftlog.coach";
+const LIB = (typeof CATALOG !== "undefined") ? CATALOG : [];
 
 /* ---------- Storage ---------- */
 let DB = load();
@@ -313,7 +363,81 @@ function load(){
   }catch(e){}
   return { exercises:[], workouts:[] };
 }
-function save(){ localStorage.setItem(KEY, JSON.stringify(DB)); }
+function save(){
+  // mark the currently-edited workout as pending sync whenever it's modified
+  const w = workoutFor(editDate, false);
+  if(w && currentUser && w._sync !== 'synced') w._sync = 'pending';
+  else if(w && currentUser) w._sync = 'pending'; // re-mark synced workouts being edited
+  localStorage.setItem(KEY, JSON.stringify(DB));
+  if(currentUser) scheduleSyncPending();
+}
+
+/* ---------- Supabase: auth + sync ---------- */
+let _syncTimer = null;
+function scheduleSyncPending(){
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(syncPending, 2000);
+}
+
+async function syncPending(){
+  if(!currentUser) return;
+  const pending = DB.workouts.filter(w => w._sync === 'pending' && w.entries.length);
+  if(!pending.length) return;
+  let synced = 0;
+  for(const w of pending){
+    try{
+      const { error } = await sb.from('workouts').upsert({
+        user_id: currentUser.id,
+        client_id: w.id,
+        date: w.date,
+        payload: { entries: w.entries }
+      }, { onConflict: 'user_id,client_id' });
+      if(!error){ w._sync = 'synced'; synced++; }
+    }catch(_){}
+  }
+  if(synced){
+    localStorage.setItem(KEY, JSON.stringify(DB));
+    render();
+    const stillPending = DB.workouts.filter(w => w._sync === 'pending');
+    if(!stillPending.length) toast('Workouts synced ✓');
+  }
+}
+
+function markNewWorkoutsPending(){
+  DB.workouts.forEach(w => { if(w.entries.length && !w._sync) w._sync = 'pending'; });
+  localStorage.setItem(KEY, JSON.stringify(DB));
+}
+
+async function fetchLatestPlan(){
+  if(!currentUser) return;
+  try{
+    const { data, error } = await sb.from('plans')
+      .select('plan, generated_at')
+      .eq('user_id', currentUser.id)
+      .eq('active', true)
+      .order('generated_at', { ascending: false })
+      .limit(1)
+      .single();
+    if(data && !error){
+      localStorage.setItem(PLAN_KEY, JSON.stringify({ ...data.plan, generated_at: data.generated_at }));
+      if(activeTab === 'coach') renderCoach();
+    }
+  }catch(_){}
+}
+
+async function initAuth(){
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    currentUser = session?.user ?? null;
+  }catch(_){ currentUser = null; }
+  sb.auth.onAuthStateChange((_event, session) => {
+    currentUser = session?.user ?? null;
+    if(currentUser){ markNewWorkoutsPending(); syncPending(); fetchLatestPlan(); }
+    if(activeTab === 'more') renderMore();
+    if(activeTab === 'coach') renderCoach();
+  });
+  if(currentUser){ markNewWorkoutsPending(); syncPending(); fetchLatestPlan(); }
+}
 
 /* ---------- Utils ---------- */
 const $ = (s,el=document)=>el.querySelector(s);
@@ -354,7 +478,6 @@ function workoutFor(dateKey, create){
 }
 function activeWorkout(create){ return workoutFor(editDate, create); }
 
-// best working set for an exercise: highest weight, tiebreak reps
 function pbFor(exId){
   let best=null;
   for(const w of DB.workouts){
@@ -371,7 +494,6 @@ function pbFor(exId){
   return best;
 }
 
-// most recent prior working sets for an exercise (excludes today)
 function lastSession(exId){
   const past = DB.workouts.filter(w=>w.date!==editDate).sort((a,b)=>b.date<a.date?-1:1);
   for(const w of past){
@@ -388,12 +510,14 @@ function lastSession(exId){
    RENDER
    ============================================================ */
 let activeTab = "log";
-let editDate = todayKey();   // the date currently being logged / edited on the Log tab
+let editDate = todayKey();
+let activeCoachGroup = "Back";
 
 function render(){
   if(activeTab==="log") renderLog();
   else if(activeTab==="history") renderHistory();
   else if(activeTab==="ex") renderEx();
+  else if(activeTab==="coach") renderCoach();
   else if(activeTab==="more") renderMore();
 }
 
@@ -411,7 +535,7 @@ function renderLog(){
   $("#finishBtn").style.display = (w && w.entries.length) ? "block":"none";
 
   if(!w || !w.entries.length){
-    body.innerHTML = `<div class="empty"><div class="big">🏋️</div>No exercises logged ${isToday?"today":"on this day"}.<br>Tap “Add exercise” to start.</div>`;
+    body.innerHTML = `<div class="empty"><div class="big">🏋️</div>No exercises logged ${isToday?"today":"on this day"}.<br>Tap "Add exercise" to start.</div>`;
     return;
   }
 
@@ -484,7 +608,6 @@ function renderHistory(){
     return;
   }
 
-  // last 7 days muscle summary
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-6); cutoff.setHours(0,0,0,0);
   const counts = {};
   for(const w of sorted){
@@ -512,10 +635,11 @@ function renderHistory(){
                         : `<span class="faint small">${en.sets.length} sets</span>`;
       return `<div class="row between" style="padding:6px 0"><span class="ellip">${esc(ex.name)}</span>${detail}</div>`;
     }).join("");
+    const syncDot = w._sync ? `<span class="sync-dot ${w._sync}"></span>` : '';
     return `<div class="card">
       <div class="row between" style="margin-bottom:8px">
         <span class="wk-date">${dateLabel(w.date)}</span>
-        <span class="faint small">${w.entries.length} exercises · ${nSets} sets</span>
+        <span class="row" style="gap:8px">${syncDot}<span class="faint small">${w.entries.length} exercises · ${nSets} sets</span></span>
       </div>
       <div class="chips" style="margin-bottom:6px">${muscles.map(m=>`<span class="chip">${esc(m)}</span>`).join("")}</div>
       ${exLines}
@@ -533,12 +657,11 @@ function renderEx(){
   if(q) list = list.filter(e=>e.name.toLowerCase().includes(q) || e.muscle.toLowerCase().includes(q));
 
   if(!DB.exercises.length){
-    body.innerHTML = `<div class="empty"><div class="big">📒</div>No exercises yet.<br>Tap “Add exercise / personal best” above to start.</div>`;
+    body.innerHTML = `<div class="empty"><div class="big">📒</div>No exercises yet.<br>Tap "Add exercise / personal best" above to start.</div>`;
     return;
   }
   if(!list.length){ body.innerHTML = `<div class="empty">No matches.</div>`; return; }
 
-  // group by muscle
   const byM = {};
   for(const e of list){ (byM[e.muscle]=byM[e.muscle]||[]).push(e); }
   const order = MUSCLES.filter(m=>byM[m]);
@@ -556,8 +679,92 @@ function renderEx(){
   }).join("");
 }
 
+/* ---------- COACH ---------- */
+function renderCoach(){
+  // tabs
+  $("#coachTabs").innerHTML = COACH_GROUPS.map(g =>
+    `<button class="gtab${g===activeCoachGroup?' on':''}" data-group="${g}">${g}</button>`
+  ).join("");
+
+  // load cached plan
+  let plan = null;
+  try{ plan = JSON.parse(localStorage.getItem(PLAN_KEY)); }catch(_){}
+
+  // plan date subtitle
+  const planDate = plan?.generated_at
+    ? new Date(plan.generated_at).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})
+    : '';
+  $("#coachPlanDate").textContent = planDate ? `Updated ${planDate}` : '';
+
+  const body = $("#coachBody");
+
+  if(!plan){
+    body.innerHTML = !currentUser
+      ? `<div class="empty"><div class="big">🔒</div>Sign in (More tab) to load your coaching plan.</div>`
+      : `<div class="empty"><div class="big">🧪</div>No plan yet.<br><span class="small muted">Run the lab to generate your first coaching plan.</span></div>`;
+    return;
+  }
+
+  const group = plan.groups?.[activeCoachGroup];
+  if(!group){
+    body.innerHTML = `<div class="empty"><div class="big">—</div><span class="small muted">No data for ${esc(activeCoachGroup)} yet.</span></div>`;
+    return;
+  }
+
+  const pClass = `priority-${(group.priority||'medium').toLowerCase()}`;
+  const pLabel = (group.priority||'medium').toUpperCase();
+  const focusRows = (group.focus||[]).map(f => {
+    const target = [
+      f.target_weight ? f.target_weight+'kg' : '',
+      f.target_reps   ? f.target_reps+' reps' : ''
+    ].filter(Boolean).join(' × ');
+    return `<div class="focus-row">
+      <div class="focus-ex">${esc(f.exercise)}</div>
+      ${target ? `<div class="focus-target">${esc(target)}</div>` : ''}
+      ${f.note  ? `<div class="focus-note">${esc(f.note)}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `<div class="card">
+    <span class="priority-badge ${pClass}">${pLabel} PRIORITY</span>
+    ${focusRows || '<div class="faint small">No specific exercises prescribed.</div>'}
+    ${group.why ? `<div class="small muted" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">📌 ${esc(group.why)}</div>` : ''}
+  </div>
+  ${plan.valid_week ? `<div class="tiny faint center" style="margin-top:4px">Plan for week ${esc(plan.valid_week)}</div>` : ''}`;
+}
+
 /* ---------- MORE ---------- */
 function renderMore(){
+  const pendingCount = DB.workouts.filter(w => w._sync === 'pending').length;
+  const syncedCount  = DB.workouts.filter(w => w._sync === 'synced').length;
+
+  let authHTML;
+  if(currentUser){
+    authHTML = `<div class="card">
+      <div class="row between">
+        <div>
+          <div class="small" style="font-weight:700">${esc(currentUser.email)}</div>
+          <div class="tiny" style="margin-top:3px">
+            ${pendingCount
+              ? `<span style="color:var(--gold)">↑ ${pendingCount} workout${pendingCount>1?'s':''} pending sync</span>`
+              : `<span style="color:var(--good)">✓ All synced</span>`}
+            ${syncedCount ? ` · ${syncedCount} in cloud` : ''}
+          </div>
+        </div>
+        <button class="btn sm ghost" id="signOutBtn">Sign out</button>
+      </div>
+      ${pendingCount ? `<button class="btn full sm" id="syncNowBtn" style="margin-top:10px">Sync now</button>` : ''}
+    </div>`;
+  } else {
+    authHTML = `<div class="card">
+      <div class="small muted" style="margin-bottom:10px;font-weight:600">Sync workouts &amp; get coaching plans</div>
+      <input class="in" id="authEmail" type="email" placeholder="your@email.com" autocomplete="email" style="margin-bottom:8px">
+      <button class="btn primary full" id="signInBtn">Send magic link</button>
+      <div class="tiny faint" style="margin-top:8px;text-align:center">A sign-in link will be sent to your email.</div>
+    </div>`;
+  }
+  $("#authCard").innerHTML = authHTML;
+
   $("#statWorkouts").textContent = DB.workouts.filter(w=>w.entries.length).length;
   $("#statEx").textContent = DB.exercises.length;
   $("#statSets").textContent = DB.workouts.reduce((a,w)=>a+w.entries.reduce((b,en)=>b+en.sets.length,0),0);
@@ -570,14 +777,13 @@ function openSheet(html){ $("#sheet").innerHTML = `<div class="grab"></div>`+htm
 function closeSheet(){ $("#sheetBg").classList.remove("open"); }
 $("#sheetBg").addEventListener("click",e=>{ if(e.target===$("#sheetBg")) closeSheet(); });
 
-// find an existing user exercise by name, or create one from the library/custom input
 function ensureExercise(name, muscle){
   let ex = DB.exercises.find(e=>e.name.toLowerCase()===name.toLowerCase());
   if(!ex){ ex = { id:uid(), name, muscle }; DB.exercises.push(ex); save(); }
   return ex;
 }
 
-let _pick = [];   // current rendered results for the add-exercise sheet
+let _pick = [];
 function openAddExercise(opts){
   opts = opts || {};
   const onChoose = opts.onChoose || addEntry;
@@ -603,10 +809,8 @@ function openAddExercise(opts){
     const q = filter.value.trim().toLowerCase();
     const userNames = new Set(DB.exercises.map(e=>e.name.toLowerCase()));
 
-    // Your own exercises first (always shown; filtered when searching)
     const mine = DB.exercises.filter(e=>!q || e.name.toLowerCase().includes(q))
                              .sort((a,b)=>a.name.localeCompare(b.name));
-    // Library matches (only while searching, and not already in your list)
     const lib = q ? LIB.filter(c=>c.n.toLowerCase().includes(q) && !userNames.has(c.n.toLowerCase())).slice(0,50) : [];
 
     _pick = [];
@@ -616,7 +820,7 @@ function openAddExercise(opts){
     const list = $("#pickList");
     if(!_pick.length){
       list.innerHTML = q
-        ? `<div class="faint small center" style="padding:20px">No match — create “${esc(filter.value.trim())}” below.</div>`
+        ? `<div class="faint small center" style="padding:20px">No match — create "${esc(filter.value.trim())}" below.</div>`
         : `<div class="faint small center" style="padding:20px">Start typing to search the library,<br>or type a new name to create your own.</div>`;
     } else {
       const head = (mine.length && lib.length) ? mine.length : 0;
@@ -634,13 +838,13 @@ function openAddExercise(opts){
 
     const exact = userNames.has(q) || LIB.some(c=>c.n.toLowerCase()===q);
     $("#createArea").style.display = (q && !exact) ? "block":"none";
-    if(q && !exact) $("#createBtn").textContent = `Create “${filter.value.trim()}” & add`;
+    if(q && !exact) $("#createBtn").textContent = `Create "${filter.value.trim()}" & add`;
   }
 
   filter.addEventListener("input", renderPicks);
   $("#pickList").addEventListener("click",e=>{
     const p = e.target.closest("[data-i]"); if(!p) return;
-    if(p.style.opacity==="0.4") return; // already added today
+    if(p.style.opacity==="0.4") return;
     const it = _pick[+p.dataset.i];
     const ex = it.type==="user" ? exById(it.id) : ensureExercise(it.name, it.muscle);
     onChoose(ex.id);
@@ -670,7 +874,6 @@ function addEntry(exId){
 function openExDetail(exId){
   const ex = exById(exId); if(!ex) return;
   const pb = pbFor(exId);
-  // collect per-session top working set
   const hist=[];
   for(const w of DB.workouts){
     const en = w.entries.find(e=>e.exId===exId); if(!en) continue;
@@ -707,7 +910,7 @@ function openExDetail(exId){
     </div>
     <div class="field" style="margin-top:10px"><label>Date</label>
       <input type="date" class="datepick" id="resDate" value="${todayKey()}" max="${todayKey()}" style="width:100%"></div>
-    <div class="tiny faint" style="margin:8px 0 2px">Logs a working set on that date — updates your PB if it beats it. Handy for loading old bests.</div>
+    <div class="tiny faint" style="margin:8px 0 2px">Logs a working set on that date — updates your PB if it beats it.</div>
     <div class="grouphdr" style="margin-left:0">SESSION HISTORY</div>
     ${rows}
     <hr class="hr">
@@ -724,20 +927,55 @@ function switchTab(tab){
   $$(".screen").forEach(s=>s.classList.remove("active"));
   $("#screen-"+tab).classList.add("active");
   window.scrollTo(0,0);
+  if(tab === 'coach') fetchLatestPlan();
   render();
 }
 $$("nav button").forEach(b=> b.addEventListener("click",()=>{
-  if(b.dataset.tab==="log") editDate = todayKey();   // tapping Log always returns to today
+  if(b.dataset.tab==="log") editDate = todayKey();
   switchTab(b.dataset.tab);
 }) );
 
+// coach group tabs
+$("#coachTabs").addEventListener("click", e=>{
+  const g = e.target.closest("[data-group]");
+  if(g){ activeCoachGroup = g.dataset.group; renderCoach(); }
+});
+
+// more tab — auth actions (event delegation)
+$("#authCard").addEventListener("click", async e=>{
+  if(e.target.id === "signInBtn"){
+    const emailEl = $("#authEmail");
+    const email = emailEl?.value?.trim();
+    if(!email){ toast("Enter your email"); return; }
+    e.target.disabled = true; e.target.textContent = "Sending…";
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: location.origin + location.pathname }
+    });
+    e.target.disabled = false;
+    if(error){ e.target.textContent = "Send magic link"; toast("Error: " + error.message); }
+    else { e.target.textContent = "Send magic link"; toast("Check your email for a sign-in link"); }
+    return;
+  }
+  if(e.target.id === "signOutBtn"){
+    await sb.auth.signOut();
+    currentUser = null;
+    renderMore();
+    return;
+  }
+  if(e.target.id === "syncNowBtn"){
+    toast("Syncing…");
+    await syncPending();
+    renderMore();
+    return;
+  }
+});
+
 $("#addExerciseBtn").addEventListener("click", ()=>openAddExercise());
 
-// Log-tab date controls
 $("#logDate").addEventListener("change",()=>{ editDate = $("#logDate").value || todayKey(); render(); });
 $("#logSub").addEventListener("click",e=>{ if(e.target.id==="backToday"){ editDate = todayKey(); render(); } });
 
-// History: log a workout for a past date
 $("#addPastBtn").addEventListener("click",()=>{
   switchTab("log");
   const d = $("#logDate");
@@ -745,7 +983,6 @@ $("#addPastBtn").addEventListener("click",()=>{
   toast("Pick the date, then add exercises");
 });
 
-// Exercises: add a lift to your list (then optionally enter a past best)
 $("#addExToListBtn").addEventListener("click",()=>{
   openAddExercise({ markUsed:false, title:"Add exercise", onChoose:(id)=>{ render(); openExDetail(id); } });
 });
@@ -755,7 +992,6 @@ $("#finishBtn").addEventListener("click",()=>{
   switchTab("history");
 });
 
-// delegated clicks within log body
 $("#logBody").addEventListener("click",e=>{
   const seg = e.target.closest("[data-type]");
   if(seg){
@@ -785,7 +1021,6 @@ function addSet(entryIdx){
   const prevPB = pbFor(wk.entries[entryIdx].exId);
   wk.entries[entryIdx].sets.push({ type, weight:w, reps:r });
   save();
-  // PB check
   const newPB = pbFor(wk.entries[entryIdx].exId);
   render();
   if(type==="work" && newPB && (!prevPB || newPB.weight>prevPB.weight || (newPB.weight===prevPB.weight && newPB.reps>prevPB.reps))
@@ -814,7 +1049,6 @@ function delEntry(entryIdx){
   save(); render();
 }
 
-// history delete
 $("#historyBody").addEventListener("click",e=>{
   const d = e.target.closest("[data-del-workout]");
   if(d){
@@ -824,7 +1058,6 @@ $("#historyBody").addEventListener("click",e=>{
   }
 });
 
-// exercises
 $("#exSearch").addEventListener("input", renderEx);
 $("#exBody").addEventListener("click",e=>{
   const d = e.target.closest("[data-ex-detail]");
@@ -844,8 +1077,8 @@ $("#sheet").addEventListener("click",e=>{
     en.sets.push({ type:"work", weight:wv, reps:rv });
     save();
     const newPB = pbFor(id);
-    render();          // refresh the list behind the sheet
-    openExDetail(id);  // reopen detail with updated PB/history
+    render();
+    openExDetail(id);
     if(!prevPB || newPB.weight>prevPB.weight || (newPB.weight===prevPB.weight && newPB.reps>prevPB.reps)) toast("🏆 New PB!");
     else toast("Result added");
     return;
@@ -863,7 +1096,12 @@ $("#sheet").addEventListener("click",e=>{
 
 /* ---------- Backup ---------- */
 $("#exportBtn").addEventListener("click",()=>{
-  const data = JSON.stringify(DB,null,2);
+  // strip internal _sync field from export
+  const exportDB = {
+    exercises: DB.exercises,
+    workouts: DB.workouts.map(({ _sync, ...rest }) => rest)
+  };
+  const data = JSON.stringify(exportDB,null,2);
   const blob = new Blob([data],{type:"application/json"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -881,7 +1119,13 @@ $("#importFile").addEventListener("change",e=>{
       const obj = JSON.parse(reader.result);
       if(!obj.exercises || !obj.workouts) throw 0;
       if(!confirm("Replace ALL current data with this backup?")) return;
-      DB = obj; save(); render(); toast("Backup restored");
+      DB = obj;
+      // mark all imported workouts as pending so they sync up
+      if(currentUser) DB.workouts.forEach(w => { if(w.entries.length) w._sync = 'pending'; });
+      localStorage.setItem(KEY, JSON.stringify(DB));
+      render();
+      toast("Backup restored");
+      if(currentUser) syncPending();
     }catch(err){ alert("Invalid backup file."); }
   };
   reader.readAsText(file);
@@ -895,6 +1139,8 @@ $("#wipeBtn").addEventListener("click",()=>{
 
 /* ---------- Boot ---------- */
 render();
+initAuth();
+window.addEventListener('online', ()=>{ if(currentUser) syncPending(); });
 if("serviceWorker" in navigator && location.protocol.startsWith("http")){
   navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
