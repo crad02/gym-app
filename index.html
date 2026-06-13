@@ -758,9 +758,7 @@ function renderMore(){
   } else {
     authHTML = `<div class="card">
       <div class="small muted" style="margin-bottom:10px;font-weight:600">Sync workouts &amp; get coaching plans</div>
-      <input class="in" id="authEmail" type="email" placeholder="your@email.com" autocomplete="email" style="margin-bottom:8px">
-      <button class="btn primary full" id="signInBtn">Send magic link</button>
-      <div class="tiny faint" style="margin-top:8px;text-align:center">A sign-in link will be sent to your email.</div>
+      <button class="btn primary full" id="signInBtn">Continue with Google</button>
     </div>`;
   }
   $("#authCard").innerHTML = authHTML;
@@ -944,17 +942,12 @@ $("#coachTabs").addEventListener("click", e=>{
 // more tab — auth actions (event delegation)
 $("#authCard").addEventListener("click", async e=>{
   if(e.target.id === "signInBtn"){
-    const emailEl = $("#authEmail");
-    const email = emailEl?.value?.trim();
-    if(!email){ toast("Enter your email"); return; }
-    e.target.disabled = true; e.target.textContent = "Sending…";
-    const { error } = await sb.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: location.origin + location.pathname }
+    e.target.disabled = true; e.target.textContent = "Redirecting…";
+    const { error } = await sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: location.origin + location.pathname }
     });
-    e.target.disabled = false;
-    if(error){ e.target.textContent = "Send magic link"; toast("Error: " + error.message); }
-    else { e.target.textContent = "Send magic link"; toast("Check your email for a sign-in link"); }
+    if(error){ e.target.disabled = false; e.target.textContent = "Continue with Google"; toast("Error: " + error.message); }
     return;
   }
   if(e.target.id === "signOutBtn"){
