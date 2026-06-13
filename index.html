@@ -730,7 +730,7 @@ function renderCoach(){
     ${focusRows || '<div class="faint small">No specific exercises prescribed.</div>'}
     ${group.why ? `<div class="small muted" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">📌 ${esc(group.why)}</div>` : ''}
   </div>
-  ${plan.valid_week ? `<div class="tiny faint center" style="margin-top:4px">Plan for week ${esc(plan.valid_week)}</div>` : ''}`;
+  ${plan.generated_from?.valid_week ? `<div class="tiny faint center" style="margin-top:4px">Plan for week ${esc(plan.generated_from.valid_week)}</div>` : ''}`;
 }
 
 /* ---------- MORE ---------- */
