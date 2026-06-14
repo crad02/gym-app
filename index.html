@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Lift Log</title>
 
-<meta name="theme-color" content="#1c1815">
+<meta name="theme-color" content="#10141e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
@@ -15,27 +15,28 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
 <style>
   :root{
-    /* ---- "Sand" theme: warm mocha neutrals · burnt-sienna accent · serif display ---- */
-    --bg:#1c1815;
-    --surface:#251f19;
-    --surface-2:#2e271f;
-    --border:#3d342a;
-    --text:#f3ece1;
-    --muted:#b6a994;
-    --faint:#857a66;
-    --accent:#c2643f;          /* burnt sienna */
-    --accent-dim:#3a2419;
-    --accent-ink:#1c1815;      /* readable ink on the accent */
-    --good:#9caf7e;            /* olive sage */
-    --gold:#d99f53;
-    --danger:#d2654a;
-    --radius:16px;
-    --font-head:"Fraunces",Georgia,serif;
-    --font-body:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    /* ---- "Twilight" theme: mid blue-navy · bright cyan accent · clean sans ---- */
+    --bg:#10141e;
+    --surface:#171d2b;
+    --surface-2:#1f2636;
+    --border:#2a3346;
+    --text:#eaf0f9;
+    --muted:#92a0b6;
+    --faint:#5e6a82;
+    --accent:#7cc4ff;          /* bright cyan-blue */
+    --accent-dim:#1a2c46;
+    --accent-ink:#10141e;      /* readable ink on the accent */
+    --good:#71d2ac;            /* soft teal-green */
+    --gold:#f1c570;
+    --gold-dim:#332f1a;
+    --danger:#f08a8a;
+    --radius:15px;
+    --font-head:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,sans-serif;
+    --font-body:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
     --safe-top:env(safe-area-inset-top);
     --safe-bottom:env(safe-area-inset-bottom);
   }
@@ -47,6 +48,7 @@
     font-family:var(--font-body);
     font-size:16px;
     line-height:1.4;
+    font-variant-numeric:tabular-nums;
     -webkit-font-smoothing:antialiased;
     overscroll-behavior-y:none;
   }
@@ -65,7 +67,12 @@
   @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
 
   .top{display:flex;align-items:baseline;justify-content:space-between;margin:6px 2px 16px;}
-  .top h1{font-family:var(--font-head);font-size:28px;font-weight:600;letter-spacing:-.5px;margin:0;}
+  .top h1{font-family:var(--font-head);font-size:27px;font-weight:800;letter-spacing:-.7px;margin:0;}
+  /* summary stat row (Today) */
+  .statrow{display:flex;gap:8px;margin-bottom:16px;}
+  .stat{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:11px 12px;}
+  .stat .n{font-size:22px;font-weight:800;letter-spacing:-.5px;line-height:1;}
+  .stat .l{font-size:11px;color:var(--muted);font-weight:600;margin-top:4px;text-transform:uppercase;letter-spacing:.3px;}
   .top .sub{color:var(--muted);font-size:13px;font-weight:600;}
 
   /* ---------- Cards ---------- */
@@ -144,8 +151,8 @@
     padding:8px 0;border-top:1px solid var(--border);
   }
   .set .typetag{font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;width:62px;text-align:center;}
-  .typetag.work{background:var(--accent-dim);color:#dd9070;}
-  .typetag.warm{background:#3a2f1a;color:#e8c07e;}
+  .typetag.work{background:var(--accent-dim);color:var(--accent);}
+  .typetag.warm{background:var(--gold-dim);color:var(--gold);}
   .set .val{font-weight:600;}
   .set .val small{color:var(--muted);font-weight:500;}
   .pbflag{color:var(--gold);font-size:11px;font-weight:700;}
@@ -169,7 +176,7 @@
   /* ---------- Bottom nav ---------- */
   nav{
     position:fixed;left:0;right:0;bottom:0;z-index:50;
-    background:rgba(28,24,21,.88);backdrop-filter:blur(14px);
+    background:rgba(16,20,30,.9);backdrop-filter:blur(14px);
     border-top:1px solid var(--border);
     display:flex;justify-content:space-around;
     padding:8px 6px calc(8px + var(--safe-bottom));
@@ -232,33 +239,37 @@
   }
   .gtab.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
   .priority-badge{
-    display:inline-block;font-size:11px;font-weight:700;letter-spacing:.4px;
-    padding:3px 9px;border-radius:6px;margin-bottom:12px;
+    display:inline-flex;align-items:center;font-size:11px;font-weight:700;letter-spacing:.4px;
+    padding:5px 11px;border-radius:999px;margin-bottom:10px;
+    background:var(--surface-2);border:1px solid var(--border);
   }
-  .priority-high{background:rgba(194,100,63,.18);color:#d6855f;}
-  .priority-medium{background:rgba(217,159,83,.16);color:var(--gold);}
-  .priority-low{background:rgba(156,175,126,.16);color:var(--good);}
+  .priority-badge .pdot{width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:7px;}
+  .priority-high{color:var(--danger);}
+  .priority-medium{color:var(--gold);}
+  .priority-low{color:var(--good);}
   .focus-row{padding:11px 0;border-top:1px solid var(--border);}
   .focus-ex{font-weight:700;font-size:15px;}
-  .focus-target{font-size:13px;color:var(--accent);font-weight:600;margin-top:3px;}
-  .focus-note{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.5;}
+  .focus-target{font-size:12px;color:var(--accent);font-weight:700;background:var(--accent-dim);
+    padding:4px 9px;border-radius:8px;white-space:nowrap;}
+  .focus-note{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.5;}
   /* live weekly volume strip */
   .vol-card{padding:12px 14px;margin-bottom:12px;}
   .vol-head{font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--muted);
     margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline;}
   .vol-sub{font-size:10px;font-weight:600;color:var(--faint);letter-spacing:0;}
-  .vol-row{display:flex;align-items:center;gap:10px;padding:5px 0;}
+  .vol-row{display:flex;align-items:center;gap:10px;padding:6px 0;}
   .vol-name{width:78px;font-size:13px;font-weight:600;flex-shrink:0;}
-  .vol-bar{flex:1;height:7px;border-radius:999px;background:var(--surface-2);overflow:hidden;}
-  .vol-fill{height:100%;border-radius:999px;transition:width .3s;}
-  .vol-count{width:62px;text-align:right;font-size:14px;font-weight:700;flex-shrink:0;line-height:1.1;}
+  .vol-bar{flex:1;height:9px;border-radius:999px;background:var(--surface-2);position:relative;overflow:hidden;}
+  .vol-tick{position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--faint);opacity:.55;z-index:2;}
+  .vol-fill{height:100%;border-radius:999px;position:relative;z-index:1;transition:width .3s;}
+  .vol-count{width:60px;text-align:right;font-size:15px;font-weight:800;flex-shrink:0;line-height:1.05;}
   .vol-tag{display:block;font-size:9px;font-weight:600;letter-spacing:.3px;opacity:.85;}
   .vol-fill.vol-under{background:var(--gold);}
   .vol-fill.vol-good{background:var(--good);}
-  .vol-fill.vol-high{background:#f87171;}
+  .vol-fill.vol-high{background:var(--danger);}
   .vol-count.vol-under{color:var(--gold);}
   .vol-count.vol-good{color:var(--good);}
-  .vol-count.vol-high{color:#f87171;}
+  .vol-count.vol-high{color:var(--danger);}
   .vol-empty{font-size:12px;color:var(--faint);padding:2px 0;}
 </style>
 </head>
@@ -621,7 +632,17 @@ function renderLog(){
     return;
   }
 
-  body.innerHTML = w.entries.map((en,i)=>{
+  // today summary stats
+  let workSets=0, volume=0;
+  for(const en of w.entries) for(const s of en.sets) if(s.type==="work"){ workSets++; volume += (s.weight||0)*(s.reps||0); }
+  const volStr = volume>=1000 ? (volume/1000).toFixed(1)+"k" : Math.round(volume);
+  const statRow = `<div class="statrow">
+    <div class="stat"><div class="n">${w.entries.length}</div><div class="l">exercises</div></div>
+    <div class="stat"><div class="n">${workSets}</div><div class="l">work sets</div></div>
+    <div class="stat"><div class="n">${volStr}</div><div class="l">kg volume</div></div>
+  </div>`;
+
+  body.innerHTML = statRow + w.entries.map((en,i)=>{
     const ex = exById(en.exId) || {name:en.name,muscle:"Other"};
     const pb = pbFor(en.exId);
     const last = lastSession(en.exId);
@@ -806,18 +827,19 @@ function volumeStripHTML(groupName){
   const total = muscles.reduce((sum,m)=>sum+(tally[m]||0), 0);
   const rows = muscles.map(m=>{
     const n = tally[m] || 0;
-    const pct = Math.min(n/VOL_MIN, 1)*100;
+    // bar spans the full 10–20 band; the tick marks the 10-set minimum (at 50%)
+    const pct = Math.min(n/VOL_HIGH, 1)*100;
     let cls="vol-under", tag="build";
     if(n >= VOL_HIGH){ cls="vol-high"; tag="high"; }
     else if(n >= VOL_MIN){ cls="vol-good"; tag="on target"; }
     return `<div class="vol-row">
       <div class="vol-name">${esc(m)}</div>
-      <div class="vol-bar"><div class="vol-fill ${cls}" style="width:${pct}%"></div></div>
+      <div class="vol-bar"><div class="vol-tick"></div><div class="vol-fill ${cls}" style="width:${pct}%"></div></div>
       <div class="vol-count ${cls}">${n}<span class="vol-tag">${tag}</span></div>
     </div>`;
   }).join("");
   return `<div class="card vol-card">
-    <div class="vol-head"><span>THIS WEEK · hard sets</span><span class="vol-sub">target ${VOL_MIN}–${VOL_HIGH}/muscle</span></div>
+    <div class="vol-head"><span>THIS WEEK · hard sets</span><span class="vol-sub">band ${VOL_MIN}–${VOL_HIGH} / muscle</span></div>
     ${total ? rows : `<div class="vol-empty">No sets logged yet this week — go bank some.</div>`}
   </div>`;
 }
@@ -865,14 +887,16 @@ function renderCoach(){
       f.target_reps   ? f.target_reps+' reps' : ''
     ].filter(Boolean).join(' × ');
     return `<div class="focus-row">
-      <div class="focus-ex">${esc(f.exercise)}</div>
-      ${target ? `<div class="focus-target">${esc(target)}</div>` : ''}
+      <div class="row between">
+        <div class="focus-ex">${esc(f.exercise)}</div>
+        ${target ? `<div class="focus-target">${esc(target)}</div>` : ''}
+      </div>
       ${f.note  ? `<div class="focus-note">${esc(f.note)}</div>` : ''}
     </div>`;
   }).join('');
 
   body.innerHTML = volHTML + `<div class="card">
-    <span class="priority-badge ${pClass}">${pLabel} PRIORITY</span>
+    <span class="priority-badge ${pClass}"><span class="pdot"></span>${pLabel} PRIORITY</span>
     ${focusRows || '<div class="faint small">No specific exercises prescribed.</div>'}
     ${group.why ? `<div class="small muted" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">📌 ${esc(group.why)}</div>` : ''}
   </div>

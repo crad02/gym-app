@@ -1,40 +1,35 @@
-"""Regenerate the app icons in the 'Sand' theme — cream dumbbell on sienna.
-Draws the glyph as rounded rectangles, supersampled then downscaled for crisp edges.
+"""Regenerate the app icons in the 'Twilight' theme — navy plate + bars on cyan.
+Logo concept D: a weight-plate ring framing three ascending progress bars
+(gym × data). Supersampled then downscaled for crisp edges.
 """
 from PIL import Image, ImageDraw
 
-BG = (194, 100, 63, 255)     # --accent  #c2643f  (burnt sienna)
-GLYPH = (243, 236, 225, 255)  # --text    #f3ece1  (cream)
+CYAN = (124, 196, 255, 255)   # --accent  #7cc4ff  (background)
+NAVY = (16, 20, 30, 255)      # --bg      #10141e  (glyph)
 SS = 4                        # supersample factor
 
-# dumbbell geometry, as offsets from centre on a 512 reference canvas
-HANDLE = dict(half_w=92, half_h=30, r=30)
-INNER  = dict(dx=108, half_w=24, half_h=105, r=24)
-OUTER  = dict(dx=162, half_w=21, half_h=75,  r=21)
 
-
-def _rr(draw, cx, cy, half_w, half_h, r, u):
-    draw.rounded_rectangle(
-        [cx - half_w * u, cy - half_h * u, cx + half_w * u, cy + half_h * u],
-        radius=r * u, fill=GLYPH,
-    )
-
-
-def draw_dumbbell(draw, size, glyph_scale):
+def draw_logo(d, size, scale=1.0):
     c = size / 2
-    u = (size / 512) * glyph_scale          # ref-unit, scaled
-    # handle
-    _rr(draw, c, c, HANDLE["half_w"], HANDLE["half_h"], HANDLE["r"], u)
-    # plates (inner tall, outer short), both sides
-    for sign in (-1, 1):
-        _rr(draw, c + sign * INNER["dx"] * u, c, INNER["half_w"], INNER["half_h"], INNER["r"], u)
-        _rr(draw, c + sign * OUTER["dx"] * u, c, OUTER["half_w"], OUTER["half_h"], OUTER["r"], u)
+    u = (size / 512) * scale
+    # weight-plate ring
+    R = 172 * u
+    d.ellipse([c - R, c - R, c + R, c + R], outline=NAVY, width=int(48 * u))
+    # three ascending bars inside
+    base = c + 84 * u
+    w, gap = 38 * u, 24 * u
+    heights = [78 * u, 122 * u, 166 * u]
+    total = len(heights) * w + (len(heights) - 1) * gap
+    x = c - total / 2 + w / 2
+    for h in heights:
+        d.rounded_rectangle([x - w / 2, base - h, x + w / 2, base], radius=11 * u, fill=NAVY)
+        x += w + gap
 
 
-def render(target, glyph_scale=1.0):
+def render(target, scale=1.0):
     w = target * SS
-    img = Image.new("RGBA", (w, w), BG)
-    draw_dumbbell(ImageDraw.Draw(img), w, glyph_scale)
+    img = Image.new("RGBA", (w, w), CYAN)
+    draw_logo(ImageDraw.Draw(img), w, scale)
     return img.resize((target, target), Image.LANCZOS)
 
 
@@ -42,7 +37,7 @@ OUT = {
     "apple-touch-icon.png": (180, 1.0),
     "icon-192.png":         (192, 1.0),
     "icon-512.png":         (512, 1.0),
-    "icon-maskable-512.png": (512, 0.78),   # shrink into the maskable safe zone
+    "icon-maskable-512.png": (512, 0.80),   # shrink into the maskable safe zone
 }
 
 if __name__ == "__main__":
