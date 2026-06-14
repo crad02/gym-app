@@ -234,6 +234,24 @@
   .focus-ex{font-weight:700;font-size:15px;}
   .focus-target{font-size:13px;color:var(--accent);font-weight:600;margin-top:3px;}
   .focus-note{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.5;}
+  /* live weekly volume strip */
+  .vol-card{padding:12px 14px;margin-bottom:12px;}
+  .vol-head{font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--muted);
+    margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline;}
+  .vol-sub{font-size:10px;font-weight:600;color:var(--faint);letter-spacing:0;}
+  .vol-row{display:flex;align-items:center;gap:10px;padding:5px 0;}
+  .vol-name{width:78px;font-size:13px;font-weight:600;flex-shrink:0;}
+  .vol-bar{flex:1;height:7px;border-radius:999px;background:var(--surface-2);overflow:hidden;}
+  .vol-fill{height:100%;border-radius:999px;transition:width .3s;}
+  .vol-count{width:62px;text-align:right;font-size:14px;font-weight:700;flex-shrink:0;line-height:1.1;}
+  .vol-tag{display:block;font-size:9px;font-weight:600;letter-spacing:.3px;opacity:.85;}
+  .vol-fill.vol-under{background:var(--gold);}
+  .vol-fill.vol-good{background:var(--good);}
+  .vol-fill.vol-high{background:#f87171;}
+  .vol-count.vol-under{color:var(--gold);}
+  .vol-count.vol-good{color:var(--good);}
+  .vol-count.vol-high{color:#f87171;}
+  .vol-empty{font-size:12px;color:var(--faint);padding:2px 0;}
 </style>
 </head>
 <body>
@@ -736,6 +754,66 @@ function renderEx(){
 }
 
 /* ---------- COACH ---------- */
+/* ---------- live weekly volume ---------- */
+// Coach group → the local (app-taxonomy) muscles that roll up into it. Mirrors
+// the lab's muscle→group map at the app's coarser granularity (the app can't
+// split delts, so all "Shoulders" sits with the pressing group).
+const GROUP_MUSCLES = {
+  Back:  ["Back"],
+  Chest: ["Chest","Shoulders"],
+  Arms:  ["Biceps","Triceps","Forearms"],
+  Legs:  ["Quads","Hamstrings","Glutes","Calves"],
+  Other: ["Core"],
+};
+const VOL_MIN = 10, VOL_HIGH = 20;   // hypertrophy landmarks, same as the lab
+
+// Monday (ISO week start) of the current week, as a yyyy-mm-dd key.
+function weekStartKey(){
+  const d = new Date(); d.setHours(0,0,0,0);
+  const dow = (d.getDay()+6)%7;            // Mon=0 … Sun=6
+  d.setDate(d.getDate()-dow);
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+
+// Hard (work) sets logged so far this week, tallied by local muscle.
+function weekWorkSetsByMuscle(){
+  const start = weekStartKey();
+  const tally = {};
+  for(const w of DB.workouts){
+    if(w.date < start) continue;           // ISO date strings sort chronologically
+    for(const en of w.entries){
+      const ex = exById(en.exId);
+      const muscle = ex ? ex.muscle : "Other";
+      const n = en.sets.filter(s=>s.type==="work").length;
+      if(n) tally[muscle] = (tally[muscle]||0) + n;
+    }
+  }
+  return tally;
+}
+
+function volumeStripHTML(groupName){
+  const muscles = GROUP_MUSCLES[groupName] || [];
+  if(!muscles.length) return "";
+  const tally = weekWorkSetsByMuscle();
+  const total = muscles.reduce((sum,m)=>sum+(tally[m]||0), 0);
+  const rows = muscles.map(m=>{
+    const n = tally[m] || 0;
+    const pct = Math.min(n/VOL_MIN, 1)*100;
+    let cls="vol-under", tag="build";
+    if(n >= VOL_HIGH){ cls="vol-high"; tag="high"; }
+    else if(n >= VOL_MIN){ cls="vol-good"; tag="on target"; }
+    return `<div class="vol-row">
+      <div class="vol-name">${esc(m)}</div>
+      <div class="vol-bar"><div class="vol-fill ${cls}" style="width:${pct}%"></div></div>
+      <div class="vol-count ${cls}">${n}<span class="vol-tag">${tag}</span></div>
+    </div>`;
+  }).join("");
+  return `<div class="card vol-card">
+    <div class="vol-head"><span>THIS WEEK · hard sets</span><span class="vol-sub">target ${VOL_MIN}–${VOL_HIGH}/muscle</span></div>
+    ${total ? rows : `<div class="vol-empty">No sets logged yet this week — go bank some.</div>`}
+  </div>`;
+}
+
 function renderCoach(){
   // tabs
   $("#coachTabs").innerHTML = COACH_GROUPS.map(g =>
@@ -754,16 +832,20 @@ function renderCoach(){
 
   const body = $("#coachBody");
 
+  // live weekly volume — pure local data, shown above the plan (and even before
+  // the first lab run, so logging gives immediate feedback)
+  const volHTML = volumeStripHTML(activeCoachGroup);
+
   if(!plan){
-    body.innerHTML = !currentUser
+    body.innerHTML = volHTML + (!currentUser
       ? `<div class="empty"><div class="big">🔒</div>Sign in (More tab) to load your coaching plan.</div>`
-      : `<div class="empty"><div class="big">🧪</div>No plan yet.<br><span class="small muted">Run the lab to generate your first coaching plan.</span></div>`;
+      : `<div class="empty"><div class="big">🧪</div>No plan yet.<br><span class="small muted">Run the lab to generate your first coaching plan.</span></div>`);
     return;
   }
 
   const group = plan.groups?.[activeCoachGroup];
   if(!group){
-    body.innerHTML = `<div class="empty"><div class="big">—</div><span class="small muted">No data for ${esc(activeCoachGroup)} yet.</span></div>`;
+    body.innerHTML = volHTML + `<div class="empty"><div class="big">—</div><span class="small muted">No plan data for ${esc(activeCoachGroup)} yet.</span></div>`;
     return;
   }
 
@@ -781,7 +863,7 @@ function renderCoach(){
     </div>`;
   }).join('');
 
-  body.innerHTML = `<div class="card">
+  body.innerHTML = volHTML + `<div class="card">
     <span class="priority-badge ${pClass}">${pLabel} PRIORITY</span>
     ${focusRows || '<div class="faint small">No specific exercises prescribed.</div>'}
     ${group.why ? `<div class="small muted" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">📌 ${esc(group.why)}</div>` : ''}
