@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Lift Log</title>
 
-<meta name="theme-color" content="#0b0b0d">
+<meta name="theme-color" content="#1c1815">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Lift Log">
@@ -13,21 +13,29 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
 <style>
   :root{
-    --bg:#0b0b0d;
-    --surface:#161619;
-    --surface-2:#1d1d21;
-    --border:#2a2a2f;
-    --text:#f4f4f5;
-    --muted:#9a9aa3;
-    --faint:#6b6b73;
-    --accent:#4f8cff;
-    --accent-dim:#2a3a5c;
-    --good:#34d399;
-    --gold:#f5b342;
-    --danger:#ef4444;
-    --radius:14px;
+    /* ---- "Sand" theme: warm mocha neutrals · burnt-sienna accent · serif display ---- */
+    --bg:#1c1815;
+    --surface:#251f19;
+    --surface-2:#2e271f;
+    --border:#3d342a;
+    --text:#f3ece1;
+    --muted:#b6a994;
+    --faint:#857a66;
+    --accent:#c2643f;          /* burnt sienna */
+    --accent-dim:#3a2419;
+    --accent-ink:#1c1815;      /* readable ink on the accent */
+    --good:#9caf7e;            /* olive sage */
+    --gold:#d99f53;
+    --danger:#d2654a;
+    --radius:16px;
+    --font-head:"Instrument Serif",Georgia,serif;
+    --font-body:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
     --safe-top:env(safe-area-inset-top);
     --safe-bottom:env(safe-area-inset-bottom);
   }
@@ -36,7 +44,7 @@
   body{
     background:var(--bg);
     color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    font-family:var(--font-body);
     font-size:16px;
     line-height:1.4;
     -webkit-font-smoothing:antialiased;
@@ -57,7 +65,7 @@
   @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
 
   .top{display:flex;align-items:baseline;justify-content:space-between;margin:6px 2px 16px;}
-  .top h1{font-size:26px;font-weight:800;letter-spacing:-.5px;margin:0;}
+  .top h1{font-family:var(--font-head);font-size:34px;font-weight:400;letter-spacing:-.2px;margin:0;line-height:1;}
   .top .sub{color:var(--muted);font-size:13px;font-weight:600;}
 
   /* ---------- Cards ---------- */
@@ -98,7 +106,7 @@
     padding:11px 14px;border-radius:12px;transition:transform .08s,background .12s;
   }
   .btn:active{transform:scale(.97);}
-  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700;}
   .btn.full{width:100%;}
   .btn.sm{padding:7px 11px;font-size:14px;border-radius:10px;}
   .btn.ghost{background:transparent;}
@@ -115,7 +123,7 @@
     appearance:none;-webkit-appearance:none;
   }
   input.in:focus,select.in:focus{outline:none;border-color:var(--accent);}
-  select.in{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%239a9aa3' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  select.in{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%23b6a994' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     background-repeat:no-repeat;background-position:right 12px center;padding-right:34px;}
   .datepick{background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:9px 11px;border-radius:11px;color-scheme:dark;font-weight:600;font-size:15px;}
   .datepick:focus{outline:none;border-color:var(--accent);}
@@ -136,8 +144,8 @@
     padding:8px 0;border-top:1px solid var(--border);
   }
   .set .typetag{font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;width:62px;text-align:center;}
-  .typetag.work{background:var(--accent-dim);color:#bcd2ff;}
-  .typetag.warm{background:#3a2f1a;color:#f0cd8a;}
+  .typetag.work{background:var(--accent-dim);color:#dd9070;}
+  .typetag.warm{background:#3a2f1a;color:#e8c07e;}
   .set .val{font-weight:600;}
   .set .val small{color:var(--muted);font-weight:500;}
   .pbflag{color:var(--gold);font-size:11px;font-weight:700;}
@@ -145,7 +153,7 @@
   .setform{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;margin-top:10px;}
   .seg{display:flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;margin-bottom:10px;}
   .seg button{flex:1;padding:8px;border-radius:7px;font-size:13px;font-weight:700;color:var(--muted);}
-  .seg button.on{background:var(--accent);color:#fff;}
+  .seg button.on{background:var(--accent);color:var(--accent-ink);}
   .seg.warmon button.on{background:var(--gold);color:#231a06;}
 
   /* ---------- History ---------- */
@@ -161,7 +169,7 @@
   /* ---------- Bottom nav ---------- */
   nav{
     position:fixed;left:0;right:0;bottom:0;z-index:50;
-    background:rgba(13,13,16,.86);backdrop-filter:blur(14px);
+    background:rgba(28,24,21,.88);backdrop-filter:blur(14px);
     border-top:1px solid var(--border);
     display:flex;justify-content:space-around;
     padding:8px 6px calc(8px + var(--safe-bottom));
@@ -196,7 +204,7 @@
     padding:13px 14px;border:1px solid var(--border);border-radius:11px;margin-bottom:8px;
     background:var(--surface-2);transition:background .1s;
   }
-  .pick:active{background:#26262b;}
+  .pick:active{background:#332b22;}
 
   .toast{
     position:fixed;left:50%;bottom:calc(86px + var(--safe-bottom));transform:translateX(-50%);
@@ -222,14 +230,14 @@
     border:1px solid var(--border);color:var(--muted);background:var(--surface-2);
     white-space:nowrap;flex-shrink:0;transition:background .12s,color .12s;
   }
-  .gtab.on{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .gtab.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
   .priority-badge{
     display:inline-block;font-size:11px;font-weight:700;letter-spacing:.4px;
     padding:3px 9px;border-radius:6px;margin-bottom:12px;
   }
-  .priority-high{background:rgba(239,68,68,.15);color:#f87171;}
-  .priority-medium{background:rgba(245,179,66,.15);color:var(--gold);}
-  .priority-low{background:rgba(52,211,153,.15);color:var(--good);}
+  .priority-high{background:rgba(194,100,63,.18);color:#d6855f;}
+  .priority-medium{background:rgba(217,159,83,.16);color:var(--gold);}
+  .priority-low{background:rgba(156,175,126,.16);color:var(--good);}
   .focus-row{padding:11px 0;border-top:1px solid var(--border);}
   .focus-ex{font-weight:700;font-size:15px;}
   .focus-target{font-size:13px;color:var(--accent);font-weight:600;margin-top:3px;}
