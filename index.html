@@ -153,6 +153,9 @@
   .set .typetag{font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;width:62px;text-align:center;}
   .typetag.work{background:var(--accent-dim);color:var(--accent);}
   .typetag.warm{background:var(--gold-dim);color:var(--gold);}
+  .typetag.drop{background:#2e1f3d;color:#c79bf0;}
+  .droprow{display:flex;gap:8px;align-items:center;margin-top:8px;}
+  .droprow .in{margin:0;}
   .set .val{font-weight:600;}
   .set .val small{color:var(--muted);font-weight:500;}
   .pbflag{color:var(--gold);font-size:11px;font-weight:700;}
@@ -162,6 +165,7 @@
   .seg button{flex:1;padding:8px;border-radius:7px;font-size:13px;font-weight:700;color:var(--muted);}
   .seg button.on{background:var(--accent);color:var(--accent-ink);}
   .seg.warmon button.on{background:var(--gold);color:#231a06;}
+  .seg.dropon button.on{background:#a877e0;color:#1a0f26;}
 
   /* ---------- History ---------- */
   .wk-date{font-size:15px;font-weight:700;}
@@ -570,6 +574,15 @@ function toast(msg){
 /* ---------- Data helpers ---------- */
 function exById(id){ return DB.exercises.find(e=>e.id===id); }
 
+// A drop set counts as one hard set (its heavy segment is the top set); warmups
+// don't. Volume (kg) sums the heavy segment plus every dropped continuation.
+function isHardSet(s){ return s.type==="work" || s.type==="drop"; }
+function setVolume(s){
+  let v = (s.weight||0)*(s.reps||0);
+  if(s.type==="drop" && s.drops) for(const d of s.drops) v += (d.weight||0)*(d.reps||0);
+  return v;
+}
+
 function workoutFor(dateKey, create){
   let w = DB.workouts.find(w=>w.date===dateKey);
   if(!w && create){ w={ id:uid(), date:dateKey, entries:[] }; DB.workouts.push(w); }
@@ -583,7 +596,7 @@ function pbFor(exId){
     for(const en of w.entries){
       if(en.exId!==exId) continue;
       for(const s of en.sets){
-        if(s.type!=="work") continue;
+        if(!isHardSet(s)) continue;
         if(!best || s.weight>best.weight || (s.weight===best.weight && s.reps>best.reps)){
           best={ weight:s.weight, reps:s.reps, date:w.date };
         }
@@ -640,7 +653,7 @@ function renderLog(){
 
   // today summary stats
   let workSets=0, volume=0;
-  for(const en of w.entries) for(const s of en.sets) if(s.type==="work"){ workSets++; volume += (s.weight||0)*(s.reps||0); }
+  for(const en of w.entries) for(const s of en.sets) if(isHardSet(s)){ workSets++; volume += setVolume(s); }
   const volStr = volume>=1000 ? (volume/1000).toFixed(1)+"k" : Math.round(volume);
   const statRow = `<div class="statrow">
     <div class="stat"><div class="n">${w.entries.length}</div><div class="l">exercises</div></div>
@@ -661,10 +674,19 @@ function renderLog(){
     if(!hint) hint = "First time — set a baseline 💪";
 
     const sets = en.sets.map((s,si)=>{
+      const tag = s.type==='work'?'work':s.type==='drop'?'drop':'warm';
+      const label = s.type==='work'?'WORK':s.type==='drop'?'DROP':'WARMUP';
+      let valHtml;
+      if(s.type==='drop'){
+        const chain = [{weight:s.weight,reps:s.reps}, ...(s.drops||[])]
+          .map(d=>`${fmtKg(d.weight)}<small>×${d.reps}</small>`).join(' <span class="faint">→</span> ');
+        valHtml = `<span class="val" style="grid-column:2/4">${chain}</span>`;
+      } else {
+        valHtml = `<span class="val">${fmtKg(s.weight)}</span><span class="val">${s.reps} <small>reps</small></span>`;
+      }
       return `<div class="set">
-        <span class="typetag ${s.type==='work'?'work':'warm'}">${s.type==='work'?'WORK':'WARMUP'}</span>
-        <span class="val">${fmtKg(s.weight)}</span>
-        <span class="val">${s.reps} <small>reps</small></span>
+        <span class="typetag ${tag}">${label}</span>
+        ${valHtml}
         <button class="iconbtn" data-dup-set="${i}:${si}" aria-label="Repeat set" style="color:var(--accent);font-size:18px">⧉</button>
         <button class="iconbtn" data-del-set="${i}:${si}" aria-label="Delete set">✕</button>
       </div>`;
@@ -690,10 +712,11 @@ function setFormHTML(entryIdx){
     <div class="seg" data-typeseg>
       <button data-type="work" class="on">Working</button>
       <button data-type="warm">Warmup</button>
+      <button data-type="drop">Drop</button>
     </div>
     <div class="setform">
       <div class="field" style="margin:0">
-        <label>Weight (kg)</label>
+        <label data-wlabel>Weight (kg)</label>
         <input class="in" inputmode="decimal" data-w placeholder="0">
       </div>
       <div class="field" style="margin:0">
@@ -701,6 +724,10 @@ function setFormHTML(entryIdx){
         <input class="in" inputmode="numeric" data-r placeholder="0">
       </div>
       <button class="btn primary" data-addset="${entryIdx}" style="height:46px">Add</button>
+    </div>
+    <div data-dropwrap style="display:none">
+      <div data-droprows></div>
+      <button class="link small" data-adddrop="${entryIdx}" style="margin-top:8px">+ add drop</button>
     </div>
   </div>`;
 }
@@ -738,7 +765,7 @@ function renderHistory(){
     const nSets = w.entries.reduce((a,en)=>a+en.sets.length,0);
     const exLines = w.entries.map(en=>{
       const ex = exById(en.exId)||{name:en.name};
-      const work = en.sets.filter(s=>s.type==="work");
+      const work = en.sets.filter(isHardSet);
       const top = work.length? work.reduce((a,b)=>b.weight>a.weight?b:a,work[0]) : null;
       const detail = top? `<span class="muted small">${fmtKg(top.weight)}×${top.reps} · ${en.sets.length} sets</span>`
                         : `<span class="faint small">${en.sets.length} sets</span>`;
@@ -819,7 +846,7 @@ function weekWorkSetsByMuscle(){
     for(const en of w.entries){
       const ex = exById(en.exId);
       const muscle = ex ? ex.muscle : "Other";
-      const n = en.sets.filter(s=>s.type==="work").length;
+      const n = en.sets.filter(isHardSet).length;   // a drop set = 1 hard set
       if(n) tally[muscle] = (tally[muscle]||0) + n;
     }
   }
@@ -1051,9 +1078,9 @@ function openExDetail(exId){
   const hist=[];
   for(const w of DB.workouts){
     const en = w.entries.find(e=>e.exId===exId); if(!en) continue;
-    const work = en.sets.filter(s=>s.type==="work"); if(!work.length) continue;
+    const work = en.sets.filter(isHardSet); if(!work.length) continue;
     const top = work.reduce((a,b)=> (b.weight>a.weight||(b.weight===a.weight&&b.reps>a.reps))?b:a, work[0]);
-    const vol = en.sets.reduce((a,s)=>a+s.weight*s.reps,0);
+    const vol = en.sets.reduce((a,s)=>a+setVolume(s),0);
     hist.push({ date:w.date, top, sets:en.sets.length, vol });
   }
   hist.sort((a,b)=> a.date<b.date?1:-1);
@@ -1274,9 +1301,22 @@ $("#logBody").addEventListener("click",e=>{
     const wrap = seg.closest("[data-typeseg]");
     $$("button",wrap).forEach(b=>b.classList.remove("on"));
     seg.classList.add("on");
+    const isDrop = seg.dataset.type==="drop";
     wrap.classList.toggle("warmon", seg.dataset.type==="warm");
+    wrap.classList.toggle("dropon", isDrop);
+    const form = seg.closest("[data-setform]");
+    const dw = $("[data-dropwrap]", form);
+    if(dw){
+      dw.style.display = isDrop ? "block" : "none";
+      $("[data-wlabel]", form).textContent = isDrop ? "Top set (kg)" : "Weight (kg)";
+      if(isDrop && !$("[data-droprow]", form)) addDropRow(form);   // start with one drop
+    }
     return;
   }
+  const adrop = e.target.closest("[data-adddrop]");
+  if(adrop){ addDropRow(adrop.closest("[data-setform]")); return; }
+  const ddrop = e.target.closest("[data-deldrop]");
+  if(ddrop){ ddrop.closest("[data-droprow]").remove(); return; }
   const add = e.target.closest("[data-addset]");
   if(add){ addSet(+add.dataset.addset); return; }
   const dup = e.target.closest("[data-dup-set]");
@@ -1287,29 +1327,53 @@ $("#logBody").addEventListener("click",e=>{
   if(de){ delEntry(+de.dataset.delEntry); return; }
 });
 
+function addDropRow(form){
+  const rows = $("[data-droprows]", form);
+  const div = document.createElement("div");
+  div.className = "droprow"; div.setAttribute("data-droprow","");
+  div.innerHTML = `<input class="in" inputmode="decimal" data-dw placeholder="drop kg">
+    <input class="in" inputmode="numeric" data-dr placeholder="reps">
+    <button class="iconbtn" data-deldrop aria-label="Remove drop">✕</button>`;
+  rows.appendChild(div);
+}
+
 function addSet(entryIdx){
   const form = $(`[data-setform="${entryIdx}"]`);
   const type = $("[data-type].on",form).dataset.type;
   const w = parseFloat($("[data-w]",form).value);
   const r = parseInt($("[data-r]",form).value,10);
-  if(!(w>=0) || !(r>0)){ toast("Enter weight & reps"); return; }
+  if(!(w>=0) || !(r>0)){ toast(type==="drop"?"Enter the top set":"Enter weight & reps"); return; }
+  let set;
+  if(type==="drop"){
+    const drops = [];
+    for(const row of $$("[data-droprow]",form)){
+      const dw = parseFloat($("[data-dw]",row).value), dr = parseInt($("[data-dr]",row).value,10);
+      if(dw>=0 && dr>0) drops.push({ weight:dw, reps:dr });
+    }
+    if(!drops.length){ toast("Add at least one drop"); return; }
+    set = { type:"drop", weight:w, reps:r, drops };
+  } else {
+    set = { type, weight:w, reps:r };
+  }
   const wk = activeWorkout(true);
   const prevPB = pbFor(wk.entries[entryIdx].exId);
-  wk.entries[entryIdx].sets.push({ type, weight:w, reps:r });
+  wk.entries[entryIdx].sets.push(set);
   save();
   const newPB = pbFor(wk.entries[entryIdx].exId);
   render();
-  if(type==="work" && newPB && (!prevPB || newPB.weight>prevPB.weight || (newPB.weight===prevPB.weight && newPB.reps>prevPB.reps))
+  if(isHardSet(set) && newPB && (!prevPB || newPB.weight>prevPB.weight || (newPB.weight===prevPB.weight && newPB.reps>prevPB.reps))
      && newPB.weight===w && newPB.reps===r){
     toast("🏆 New PB!");
   } else {
-    toast("Set added");
+    toast(type==="drop"?"Drop set added":"Set added");
   }
 }
 function dupSet(entryIdx,setIdx){
   const w = activeWorkout(false); if(!w) return;
   const s = w.entries[entryIdx].sets[setIdx];
-  w.entries[entryIdx].sets.splice(setIdx+1, 0, {...s});
+  const copy = {...s};
+  if(s.drops) copy.drops = s.drops.map(d=>({...d}));   // deep-copy a drop set's segments
+  w.entries[entryIdx].sets.splice(setIdx+1, 0, copy);
   save(); render(); toast("Set repeated");
 }
 function delSet(entryIdx,setIdx){
