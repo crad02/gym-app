@@ -425,6 +425,62 @@ async function fetchLatestPlan(){
   }catch(_){}
 }
 
+// Pull the user's workouts down into local storage. The missing half of sync:
+// localStorage is per-origin and per-device, so on a new domain / phone the
+// history is empty until we hydrate it from the cloud. Insert-only by client_id
+// — we never overwrite a local row, so unsynced local edits are always safe.
+async function restoreFromCloud(){
+  if(!currentUser) return;
+  let rows;
+  try{
+    const { data, error } = await sb.from('workouts')
+      .select('client_id, date, payload')
+      .eq('user_id', currentUser.id);
+    if(error || !data) return;
+    rows = data;
+  }catch(_){ return; }
+
+  // name -> muscle from the starter catalog, to rebuild the exercises list
+  // (cloud entries carry exId + name but not the muscle group)
+  const muscleByName = {};
+  for(const c of LIB) muscleByName[c.n.toLowerCase()] = c.m;
+
+  const haveWorkout = new Set(DB.workouts.map(w => w.id));
+  const haveExId    = new Set(DB.exercises.map(e => e.id));
+  let added = 0;
+
+  for(const r of rows){
+    if(haveWorkout.has(r.client_id)) continue;   // never clobber local edits
+    const entries = (r.payload && r.payload.entries) || [];
+    DB.workouts.push({ id: r.client_id, date: r.date, entries, _sync: 'synced' });
+    haveWorkout.add(r.client_id);
+    added++;
+    // rebuild any referenced exercises we don't have locally, so the PB /
+    // Exercises screens and muscle grouping work after a restore
+    for(const en of entries){
+      if(en.exId && !haveExId.has(en.exId)){
+        DB.exercises.push({ id: en.exId, name: en.name,
+                            muscle: muscleByName[(en.name||'').toLowerCase()] || 'Other' });
+        haveExId.add(en.exId);
+      }
+    }
+  }
+
+  if(added){
+    localStorage.setItem(KEY, JSON.stringify(DB));
+    render();
+    toast(`Restored ${added} workout${added>1?'s':''} from cloud ✓`);
+  }
+}
+
+// Restore down first, then mark any local-only workouts pending and push up.
+async function onSignedIn(){
+  await restoreFromCloud();
+  markNewWorkoutsPending();
+  syncPending();
+  fetchLatestPlan();
+}
+
 async function initAuth(){
   try{
     const { data:{ session } } = await sb.auth.getSession();
@@ -432,11 +488,11 @@ async function initAuth(){
   }catch(_){ currentUser = null; }
   sb.auth.onAuthStateChange((_event, session) => {
     currentUser = session?.user ?? null;
-    if(currentUser){ markNewWorkoutsPending(); syncPending(); fetchLatestPlan(); }
+    if(currentUser) onSignedIn();
     if(activeTab === 'more') renderMore();
     if(activeTab === 'coach') renderCoach();
   });
-  if(currentUser){ markNewWorkoutsPending(); syncPending(); fetchLatestPlan(); }
+  if(currentUser) onSignedIn();
 }
 
 /* ---------- Utils ---------- */

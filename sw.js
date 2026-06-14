@@ -1,5 +1,5 @@
 /* Lift Log service worker — offline cache */
-const CACHE = "liftlog-v5";
+const CACHE = "liftlog-v6";
 const ASSETS = [
   "./",
   "./index.html",
