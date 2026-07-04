@@ -295,6 +295,36 @@
   .trend.flat{color:var(--gold);}
   .trend.down{color:var(--danger);}
   .alt-line{font-size:11px;color:var(--faint);margin-top:4px;}
+  /* log v2 — overview / lift-mode accordion */
+  .ex-card{transition:border-color .15s;}
+  .ex-card.open{border-color:var(--accent);}
+  .ex-card [data-card-head]{cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  .set-chips{font-size:12px;color:var(--muted);margin-top:4px;font-weight:600;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .set-chips .warm{color:var(--faint);font-weight:500;}
+  .caret{color:var(--faint);font-size:12px;flex-shrink:0;margin-left:8px;
+    transition:transform .15s;}
+  .ex-card.open .caret{transform:rotate(180deg);color:var(--accent);}
+  /* context strip: LAST · AIM · PB */
+  .ctx-strip{display:flex;gap:8px;margin:10px 0 4px;}
+  .ctx{flex:1;background:var(--surface-2);border-radius:11px;padding:8px 10px;text-align:center;}
+  .ctx .cl{font-size:9px;font-weight:700;letter-spacing:.6px;color:var(--faint);}
+  .ctx .cv{font-size:15px;font-weight:800;margin-top:2px;white-space:nowrap;}
+  .ctx.aim{background:var(--accent-dim);cursor:pointer;}
+  .ctx.aim .cl{color:var(--accent);}
+  .ctx.aim .cv{color:var(--accent);}
+  .ctx.pbx .cv{color:var(--gold);}
+  /* enlarged entry in lift mode */
+  .ex-card.open .setform .in{height:52px;font-size:22px;font-weight:700;text-align:center;}
+  .again-btn{width:100%;margin-top:8px;height:40px;font-size:13px;}
+  /* tap-to-edit sets */
+  .set.editable{cursor:pointer;}
+  .set.editing{background:var(--accent-dim);border-radius:10px;}
+  .edit-bar{display:flex;justify-content:space-between;align-items:center;
+    font-size:12px;color:var(--accent);font-weight:700;margin:8px 0 2px;}
+  /* coach picks in the exercise sheet */
+  .coach-pick-tag{font-size:10px;font-weight:700;color:var(--gold);
+    background:var(--gold-dim);padding:3px 8px;border-radius:999px;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -655,6 +685,34 @@ function render(){
 }
 
 /* ---------- LOG ---------- */
+// Accordion state: which entry is in "lift mode". null = auto (last entry —
+// the exercise you're currently working through). editingSet = tap-to-edit.
+let openEntry = null;
+let editingSet = null;   // {ei, si} | null
+
+// The active plan's focus row for an exercise name (joined via the lab's
+// app_exercise field, falling back to the lab's own name).
+function coachAimFor(exName){
+  let plan = null;
+  try{ plan = JSON.parse(localStorage.getItem(PLAN_KEY)); }catch(_){}
+  if(!plan?.groups || !exName) return null;
+  const ln = exName.toLowerCase();
+  for(const g of Object.values(plan.groups))
+    for(const f of (g.focus||[]))
+      if((f.app_exercise||'').toLowerCase()===ln || (f.exercise||'').toLowerCase()===ln)
+        return f;
+  return null;
+}
+
+function setChipsHTML(sets){
+  if(!sets.length) return `<div class="set-chips faint">no sets yet — tap to log</div>`;
+  const chips = sets.map(s=>{
+    const label = `${fmtKg(s.weight)}×${s.reps}${s.type==='drop'?'+':''}`;
+    return s.type==='warm' ? `<span class="warm">${label}</span>` : label;
+  }).join(' · ');
+  return `<div class="set-chips">${chips}</div>`;
+}
+
 function renderLog(){
   const isToday = editDate===todayKey();
   $("#logTitle").textContent = isToday ? "Today" : "Past workout";
@@ -682,21 +740,48 @@ function renderLog(){
     <div class="stat"><div class="n">${volStr}</div><div class="l">kg volume</div></div>
   </div>`;
 
+  // which card is in lift mode: explicit choice (-1 = all collapsed), else
+  // the last entry — the exercise you're currently working through
+  const openIdx = openEntry===-1 ? -1
+    : (openEntry!==null && openEntry>=0 && openEntry<w.entries.length)
+      ? openEntry : w.entries.length-1;
+  if(editingSet && editingSet.ei !== openIdx) editingSet = null;
+
   body.innerHTML = statRow + w.entries.map((en,i)=>{
     const ex = exById(en.exId) || {name:en.name,muscle:"Other"};
+    const isOpen = i === openIdx;
+
+    // ── collapsed: one glance — name + the sets banked so far ──
+    if(!isOpen){
+      return `<div class="card ex-card">
+        <div class="ex-head" data-card-head="${i}">
+          <div class="grow" style="min-width:0">
+            <div class="ex-name">${esc(ex.name)}</div>
+            ${setChipsHTML(en.sets)}
+          </div>
+          <span class="caret">▼</span>
+        </div>
+      </div>`;
+    }
+
+    // ── expanded: lift mode ──
     const pb = pbFor(en.exId);
     const last = lastSession(en.exId);
-    let hint = "";
-    if(last){
-      const s = last.sets.reduce((a,b)=> b.weight>a.weight?b:a, last.sets[0]);
-      hint += `Last: <b>${fmtKg(s.weight)}×${s.reps}</b>`;
-    }
-    if(pb){ hint += `${hint?" · ":""}PB: <span class="pb">${fmtKg(pb.weight)}×${pb.reps}</span>`; }
-    if(!hint) hint = "First time — set a baseline 💪";
+    const lastTop = last ? last.sets.reduce((a,b)=> b.weight>a.weight?b:a, last.sets[0]) : null;
+    const aim = coachAimFor(ex.name);
+
+    const ctx = `<div class="ctx-strip">
+      <div class="ctx"><div class="cl">LAST</div><div class="cv">${lastTop ? `${fmtKg(lastTop.weight)}×${lastTop.reps}` : '—'}</div></div>
+      ${aim ? `<div class="ctx aim" data-aim="${i}" data-aim-w="${aim.target_weight}" data-aim-r="${aim.target_reps}" title="Tap to use">
+        <div class="cl">AIM${aim.expected_change!=null ? (aim.expected_change>0.5?' ↑':aim.expected_change<-0.5?' ↓':' →') : ''}</div>
+        <div class="cv">${fmtKg(aim.target_weight)}×${aim.target_reps}</div></div>` : ''}
+      <div class="ctx pbx"><div class="cl">PB</div><div class="cv">${pb ? `${fmtKg(pb.weight)}×${pb.reps}` : '—'}</div></div>
+    </div>`;
 
     const sets = en.sets.map((s,si)=>{
       const tag = s.type==='work'?'work':s.type==='drop'?'drop':'warm';
       const label = s.type==='work'?'WORK':s.type==='drop'?'DROP':'WARMUP';
+      const isEditing = editingSet && editingSet.ei===i && editingSet.si===si;
       let valHtml;
       if(s.type==='drop'){
         const chain = [{weight:s.weight,reps:s.reps}, ...(s.drops||[])]
@@ -705,7 +790,7 @@ function renderLog(){
       } else {
         valHtml = `<span class="val">${fmtKg(s.weight)}</span><span class="val">${s.reps} <small>reps</small></span>`;
       }
-      return `<div class="set">
+      return `<div class="set editable${isEditing?' editing':''}" data-edit-set="${i}:${si}">
         <span class="typetag ${tag}">${label}</span>
         ${valHtml}
         <button class="iconbtn" data-dup-set="${i}:${si}" aria-label="Repeat set" style="color:var(--accent);font-size:18px">⧉</button>
@@ -713,41 +798,61 @@ function renderLog(){
       </div>`;
     }).join("");
 
-    return `<div class="card">
-      <div class="ex-head">
-        <div class="grow">
+    // prefill: the set being edited > this entry's last set > last session's top
+    const editSet = editingSet ? en.sets[editingSet.si] : null;
+    const prevSet = en.sets.length ? en.sets[en.sets.length-1] : null;
+    const pre = editSet
+      ? {type:editSet.type, w:editSet.weight, r:editSet.reps, drops:editSet.drops}
+      : prevSet
+        ? {type:prevSet.type==='drop'?'work':prevSet.type, w:prevSet.weight, r:prevSet.reps}
+        : lastTop ? {type:'work', w:lastTop.weight, r:lastTop.reps} : {};
+
+    return `<div class="card ex-card open">
+      <div class="ex-head" data-card-head="${i}">
+        <div class="grow" style="min-width:0">
           <div class="ex-name">${esc(ex.name)}</div>
           <div class="row" style="gap:6px;margin-top:5px"><span class="chip"><span class="dot"></span>${esc(ex.muscle)}</span></div>
-          <div class="hint">${hint}</div>
         </div>
         <button class="iconbtn" data-del-entry="${i}">🗑</button>
+        <span class="caret">▼</span>
       </div>
+      ${ctx}
       ${sets}
-      ${setFormHTML(i)}
+      ${editingSet ? `<div class="edit-bar"><span>Editing set ${editingSet.si+1}</span><button class="link small" data-cancel-edit>cancel</button></div>` : ''}
+      ${setFormHTML(i, pre, !!editingSet)}
+      ${(!editingSet && en.sets.length) ? `<button class="btn ghost again-btn" data-again="${i}">↻ Same as last set</button>` : ''}
     </div>`;
   }).join("");
 }
 
-function setFormHTML(entryIdx){
+function setFormHTML(entryIdx, pre, editing){
+  pre = pre || {};
+  const t = pre.type || 'work';
+  const dropRows = (t==='drop' ? (pre.drops||[]) : []).map(d=>`
+    <div class="droprow" data-droprow>
+      <input class="in" inputmode="decimal" data-dw placeholder="drop kg" value="${d.weight ?? ''}">
+      <input class="in" inputmode="numeric" data-dr placeholder="reps" value="${d.reps ?? ''}">
+      <button class="iconbtn" data-deldrop aria-label="Remove drop">✕</button>
+    </div>`).join('');
   return `<div data-setform="${entryIdx}">
-    <div class="seg" data-typeseg>
-      <button data-type="work" class="on">Working</button>
-      <button data-type="warm">Warmup</button>
-      <button data-type="drop">Drop</button>
+    <div class="seg${t==='warm'?' warmon':''}${t==='drop'?' dropon':''}" data-typeseg>
+      <button data-type="work"${t==='work'?' class="on"':''}>Working</button>
+      <button data-type="warm"${t==='warm'?' class="on"':''}>Warmup</button>
+      <button data-type="drop"${t==='drop'?' class="on"':''}>Drop</button>
     </div>
     <div class="setform">
       <div class="field" style="margin:0">
-        <label data-wlabel>Weight (kg)</label>
-        <input class="in" inputmode="decimal" data-w placeholder="0">
+        <label data-wlabel>${t==='drop'?'Top set (kg)':'Weight (kg)'}</label>
+        <input class="in" inputmode="decimal" data-w placeholder="0" value="${pre.w ?? ''}">
       </div>
       <div class="field" style="margin:0">
         <label>Reps</label>
-        <input class="in" inputmode="numeric" data-r placeholder="0">
+        <input class="in" inputmode="numeric" data-r placeholder="0" value="${pre.r ?? ''}">
       </div>
-      <button class="btn primary" data-addset="${entryIdx}" style="height:46px">Add</button>
+      <button class="btn primary" data-addset="${entryIdx}" style="height:46px">${editing?'Update':'Add'}</button>
     </div>
-    <div data-dropwrap style="display:none">
-      <div data-droprows></div>
+    <div data-dropwrap style="display:${t==='drop'?'block':'none'}">
+      <div data-droprows>${dropRows}</div>
       <button class="link small" data-adddrop="${entryIdx}" style="margin-top:8px">+ add drop</button>
     </div>
   </div>`;
@@ -1121,11 +1226,36 @@ function openAddExercise(opts){
     const q = filter.value.trim().toLowerCase();
     const userNames = new Set(DB.exercises.map(e=>e.name.toLowerCase()));
 
-    const mine = DB.exercises.filter(e=>!q || e.name.toLowerCase().includes(q))
+    // coach picks: focus lifts from high-priority groups, not yet in today's
+    // session — surfaced at the moment you're choosing what to do next
+    const coach = [];
+    if(!q){
+      let plan = null;
+      try{ plan = JSON.parse(localStorage.getItem(PLAN_KEY)); }catch(_){}
+      if(plan?.groups){
+        const usedNames = new Set(wk ? wk.entries.map(en=>(exById(en.exId)?.name||'').toLowerCase()) : []);
+        for(const g of Object.values(plan.groups)){
+          if(g.priority!=='high') continue;
+          for(const f of (g.focus||[])){
+            const nm = f.app_exercise || f.exercise;
+            if(!nm || usedNames.has(nm.toLowerCase())) continue;
+            const userEx = DB.exercises.find(e=>e.name.toLowerCase()===nm.toLowerCase());
+            const libMuscle = LIB.find(c=>c.n.toLowerCase()===nm.toLowerCase())?.m;
+            coach.push({type:userEx?"user":"lib", id:userEx?.id,
+                        name:userEx?userEx.name:nm, muscle:userEx?userEx.muscle:(libMuscle||"Other"),
+                        coach:true, aimLabel:`${fmtKg(f.target_weight)}×${f.target_reps}`});
+          }
+        }
+      }
+    }
+
+    const mine = DB.exercises.filter(e=>(!q || e.name.toLowerCase().includes(q))
+                                        && !coach.some(c=>c.id===e.id))
                              .sort((a,b)=>a.name.localeCompare(b.name));
     const lib = q ? LIB.filter(c=>c.n.toLowerCase().includes(q) && !userNames.has(c.n.toLowerCase())).slice(0,50) : [];
 
     _pick = [];
+    coach.forEach(c=>_pick.push(c));
     mine.forEach(e=>_pick.push({type:"user", id:e.id, name:e.name, muscle:e.muscle}));
     lib.forEach(c=>_pick.push({type:"lib", name:c.n, muscle:c.m, equip:c.e}));
 
@@ -1135,15 +1265,20 @@ function openAddExercise(opts){
         ? `<div class="faint small center" style="padding:20px">No match — create "${esc(filter.value.trim())}" below.</div>`
         : `<div class="faint small center" style="padding:20px">Start typing to search the library,<br>or type a new name to create your own.</div>`;
     } else {
-      const head = (mine.length && lib.length) ? mine.length : 0;
+      const coachEnd = coach.length, mineEnd = coach.length + mine.length;
+      const divLabel = t => `<div class="tiny faint" style="margin:10px 2px 6px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">${t}</div>`;
       list.innerHTML = _pick.map((it,i)=>{
         const pb = it.type==="user" ? pbFor(it.id) : null;
         const isUsed = it.type==="user" && used.has(it.id);
         const meta = [it.muscle, it.equip, pb?`PB ${fmtKg(pb.weight)}×${pb.reps}`:""].filter(Boolean).join(" · ");
-        const divider = (head && i===head) ? `<div class="tiny faint" style="margin:10px 2px 6px;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Library</div>` : "";
+        let divider = "";
+        if(coachEnd && i===0) divider = divLabel("🎯 Coach suggests");
+        else if(coachEnd && i===coachEnd && mine.length) divider = divLabel("Your exercises");
+        else if(i===mineEnd && lib.length) divider = divLabel("Library");
         return divider + `<div class="pick" data-i="${i}" ${isUsed?'style="opacity:.4"':''}>
           <div class="grow"><div style="font-weight:600">${esc(it.name)}</div><div class="tiny muted">${esc(meta)}</div></div>
-          ${isUsed?'<span class="tiny faint">added</span>':'<span class="muted">+</span>'}
+          ${it.coach?`<span class="coach-pick-tag">aim ${esc(it.aimLabel)}</span>`:''}
+          ${isUsed?'<span class="tiny faint">added</span>':'<span class="muted" style="margin-left:8px">+</span>'}
         </div>`;
       }).join("");
     }
@@ -1177,6 +1312,7 @@ function addEntry(exId){
     w.entries.push({ exId, name:ex.name, sets:[] });
     save();
   }
+  openEntry = null; editingSet = null;   // auto-open the newest exercise
   closeSheet();
   if(activeTab!=="log") switchTab("log");
   else render();
@@ -1436,6 +1572,41 @@ $("#logBody").addEventListener("click",e=>{
   if(ds){ const [ei,si]=ds.dataset.delSet.split(":").map(Number); delSet(ei,si); return; }
   const de = e.target.closest("[data-del-entry]");
   if(de){ delEntry(+de.dataset.delEntry); return; }
+  // ── log v2 interactions ──
+  const cancel = e.target.closest("[data-cancel-edit]");
+  if(cancel){ editingSet = null; render(); return; }
+  const aim = e.target.closest("[data-aim]");
+  if(aim){
+    const form = $(`[data-setform="${aim.dataset.aim}"]`);
+    if(form){ $("[data-w]",form).value = aim.dataset.aimW; $("[data-r]",form).value = aim.dataset.aimR; }
+    toast("Aim loaded — hit Add");
+    return;
+  }
+  const again = e.target.closest("[data-again]");
+  if(again){
+    const wk = activeWorkout(false); if(!wk) return;
+    const ei = +again.dataset.again;
+    const sets = wk.entries[ei]?.sets || [];
+    if(sets.length) dupSet(ei, sets.length-1);
+    return;
+  }
+  const es = e.target.closest("[data-edit-set]");
+  if(es && !e.target.closest("button")){
+    const [ei,si] = es.dataset.editSet.split(":").map(Number);
+    editingSet = (editingSet && editingSet.ei===ei && editingSet.si===si) ? null : {ei,si};
+    render();
+    return;
+  }
+  const head = e.target.closest("[data-card-head]");
+  if(head && !e.target.closest("button")){
+    const i = +head.dataset.cardHead;
+    const wk = activeWorkout(false);
+    const openIdx = (openEntry!==null) ? openEntry : (wk ? wk.entries.length-1 : -1);
+    openEntry = (i === openIdx) ? -1 : i;   // tap open card → collapse all
+    editingSet = null;
+    render();
+    return;
+  }
 });
 
 function addDropRow(form){
@@ -1467,14 +1638,27 @@ function addSet(entryIdx){
     set = { type, weight:w, reps:r };
   }
   const wk = activeWorkout(true);
+
+  // tap-to-edit: replace in place instead of appending
+  if(editingSet && editingSet.ei===entryIdx && wk.entries[entryIdx].sets[editingSet.si]){
+    wk.entries[entryIdx].sets[editingSet.si] = set;
+    editingSet = null;
+    save(); render(); toast("Set updated");
+    return;
+  }
+
   const prevPB = pbFor(wk.entries[entryIdx].exId);
   wk.entries[entryIdx].sets.push(set);
   save();
   const newPB = pbFor(wk.entries[entryIdx].exId);
   render();
+  const ex = exById(wk.entries[entryIdx].exId);
+  const aim = ex ? coachAimFor(ex.name) : null;
   if(isHardSet(set) && newPB && (!prevPB || newPB.weight>prevPB.weight || (newPB.weight===prevPB.weight && newPB.reps>prevPB.reps))
      && newPB.weight===w && newPB.reps===r){
     toast("🏆 New PB!");
+  } else if(set.type==="work" && aim && w>=aim.target_weight && r>=aim.target_reps){
+    toast(`🎯 Aim hit — ${fmtKg(w)}×${r}`);
   } else {
     toast(type==="drop"?"Drop set added":"Set added");
   }
@@ -1490,6 +1674,7 @@ function dupSet(entryIdx,setIdx){
 function delSet(entryIdx,setIdx){
   const w = activeWorkout(false); if(!w) return;
   w.entries[entryIdx].sets.splice(setIdx,1);
+  editingSet = null;   // indices shifted
   save(); render();
 }
 function delEntry(entryIdx){
@@ -1497,6 +1682,7 @@ function delEntry(entryIdx){
   if(w.entries[entryIdx].sets.length && !confirm("Remove this exercise from today?")) return;
   w.entries.splice(entryIdx,1);
   if(!w.entries.length){ DB.workouts = DB.workouts.filter(x=>x!==w); }
+  openEntry = null; editingSet = null;   // indices shifted; fall back to auto
   save(); render();
 }
 
