@@ -75,6 +75,22 @@
   .stat .l{font-size:11px;color:var(--muted);font-weight:600;margin-top:4px;text-transform:uppercase;letter-spacing:.3px;}
   .top .sub{color:var(--muted);font-size:13px;font-weight:600;}
 
+  /* session clock (Today) */
+  .sess{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);
+        border-radius:13px;padding:10px 13px;margin-bottom:14px;}
+  .sess .sess-l{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+  .sess .sess-v{font-size:21px;font-weight:800;letter-spacing:-.5px;margin-left:auto;line-height:1;}
+  .sess.live{border-color:var(--accent-dim);}
+  .sess.live .sess-l{color:var(--accent);}
+  .sess.live .sess-v,.sess.stale .sess-v{margin-left:0;}
+  .sess.live .btn,.sess.stale .btn,.sess.done button{margin-left:auto;}
+  .sess.live .sess-l::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;
+        background:var(--accent);margin-right:6px;animation:sesspulse 1.6s ease-in-out infinite;}
+  .sess.stale{border-color:var(--gold-dim);}
+  .sess.stale .sess-l{color:var(--gold);}
+  .sess.done .sess-v{color:var(--good);}
+  @keyframes sesspulse{0%,100%{opacity:1}50%{opacity:.2}}
+
   /* ---------- Cards ---------- */
   .card{
     background:var(--surface);
@@ -166,6 +182,26 @@
   .seg button.on{background:var(--accent);color:var(--accent-ink);}
   .seg.warmon button.on{background:var(--gold);color:#231a06;}
   .seg.dropon button.on{background:#a877e0;color:#1a0f26;}
+  /* warm-up demoted out of the segment control — rarely used, and it was
+     eating a third of the width on the path taken every single set */
+  /* supersets */
+  .ss-tag{font-size:10px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px;}
+  .superset-btn{margin-top:8px;color:var(--muted);}
+  .round{border:1px solid var(--border);border-radius:11px;padding:8px 10px;margin-bottom:8px;background:var(--surface-2);}
+  .rd-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+  .rd-lbl{font-size:10px;font-weight:800;color:var(--faint);letter-spacing:.5px;}
+  .rd-line{display:flex;align-items:baseline;gap:10px;padding:3px 0;border-radius:7px;}
+  .rd-n{font-size:13px;color:var(--muted);font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rd-v{font-weight:700;}
+  .rd-v small{color:var(--muted);font-weight:600;}
+  .rd-form{display:grid;grid-template-columns:1fr 80px 80px;gap:8px;align-items:center;margin-bottom:8px;}
+  .rd-form .in{margin:0;}
+
+  .typerow{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+  .typerow .seg{flex:1;margin-bottom:0;}
+  .warmtog{flex-shrink:0;padding:8px 11px;border-radius:9px;font-size:12px;font-weight:700;
+           color:var(--faint);background:var(--surface-2);border:1px solid var(--border);}
+  .warmtog.on{background:var(--gold-dim);border-color:var(--gold);color:var(--gold);}
 
   /* ---------- History ---------- */
   .wk-date{font-size:15px;font-weight:700;}
@@ -176,6 +212,38 @@
   .ex-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
   .pbbig{font-weight:800;font-size:16px;}
   .pbbig small{color:var(--muted);font-weight:600;font-size:12px;}
+
+  /* PB popover — anchored panel, deliberately not a sheet */
+  .pop{position:fixed;inset:0;z-index:80;display:none;}
+  .pop.open{display:block;}
+  .pop-card{
+    position:absolute;width:min(330px,calc(100vw - 20px));
+    background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    padding:12px 13px 11px;box-shadow:0 16px 40px rgba(0,0,0,.55);
+    animation:popin .13s ease-out;
+  }
+  @keyframes popin{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+  .pop-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;}
+  .pop-head .iconbtn{margin-left:auto;flex-shrink:0;}
+  .pop-name{font-weight:800;font-size:15px;letter-spacing:-.2px;}
+  .ctx.tappable{cursor:pointer;}
+  .ctx.tappable:active{background:var(--surface-2);}
+
+  /* progression sparkline */
+  .chart-read{display:flex;align-items:baseline;gap:8px;margin:2px 0 6px;min-height:22px;}
+  .chart-read .cr-d{font-size:12px;color:var(--muted);font-weight:600;}
+  .chart-read .cr-v{margin-left:auto;font-size:15px;font-weight:800;}
+  .spark{width:100%;height:auto;display:block;overflow:visible;touch-action:manipulation;}
+  .spark .grid{stroke:var(--border);stroke-width:1;}
+  .spark .ax{fill:var(--faint);font-size:10px;font-weight:600;}
+  .spark .ln{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;}
+  .spark .fill{fill:var(--accent);opacity:.07;}
+  .spark .pt{fill:var(--surface);stroke:var(--accent);stroke-width:2;}
+  .spark .pt.pb{fill:var(--gold);stroke:var(--gold);}
+  .spark .pt.on{fill:var(--accent);}
+  .spark .pt.pb.on{fill:var(--gold);}
+  .spark .hit{fill:transparent;cursor:pointer;}
+  .spark .end{fill:var(--text);font-size:11px;font-weight:800;}
 
   /* ---------- Bottom nav ---------- */
   nav{
@@ -337,6 +405,7 @@
       <input type="date" id="logDate" class="datepick">
     </div>
     <div id="logSub" style="margin:-8px 2px 14px"></div>
+    <div id="sessionBar"></div>
     <div id="logBody"></div>
     <button class="btn primary full" id="addExerciseBtn">+ Add exercise</button>
     <div style="height:14px"></div>
@@ -391,6 +460,12 @@
     <div class="card">
       <button class="btn full danger ghost" id="wipeBtn">Erase all data</button>
     </div>
+    <div class="card" id="devCard" style="display:none;border-color:var(--gold-dim)">
+      <div class="small" style="font-weight:700;color:var(--gold);margin-bottom:4px">Localhost only</div>
+      <div class="tiny muted" style="margin-bottom:10px">Demo data never syncs — it's flagged and skipped.</div>
+      <button class="btn full sm" id="seedBtn" style="margin-bottom:8px">Load demo data</button>
+      <button class="btn full sm ghost" id="unseedBtn">Clear demo data</button>
+    </div>
     <div class="center faint tiny" style="margin-top:18px">Lift Log · kg</div>
   </section>
 </div>
@@ -420,6 +495,8 @@
 </nav>
 
 <!-- ============ SHEET ============ -->
+<div class="pop" id="pbPop"><div class="pop-card"></div></div>
+
 <div class="sheet-bg" id="sheetBg">
   <div class="sheet" id="sheet"></div>
 </div>
@@ -456,6 +533,7 @@ function load(){
   return { exercises:[], workouts:[] };
 }
 function save(){
+  touchSession();
   // mark the currently-edited workout as pending sync whenever it's modified
   const w = workoutFor(editDate, false);
   if(w && currentUser && w._sync !== 'synced') w._sync = 'pending';
@@ -473,7 +551,8 @@ function scheduleSyncPending(){
 
 async function syncPending(){
   if(!currentUser) return;
-  const pending = DB.workouts.filter(w => w._sync === 'pending' && w.entries.length);
+  // _demo rows are localhost fixtures — they must never reach the real account
+  const pending = DB.workouts.filter(w => w._sync === 'pending' && w.entries.length && !w._demo);
   if(!pending.length) return;
   let synced = 0;
   for(const w of pending){
@@ -484,9 +563,14 @@ async function syncPending(){
         date: w.date,
         // denormalize each exercise's muscle into the payload so it survives a
         // device move (the exercises list itself isn't synced — only workouts).
-        payload: { entries: w.entries.map(en => ({
-          ...en, muscle: (exById(en.exId) || {}).muscle || 'Other'
-        })) }
+        payload: {
+          // session clock — epoch ms, null when the workout was never clocked
+          startedAt: w.startedAt ?? null,
+          endedAt: w.endedAt ?? null,
+          lastActivityAt: w.lastActivityAt ?? null,
+          entries: w.entries.map(en => ({
+            ...en, muscle: (exById(en.exId) || {}).muscle || 'Other'
+          })) }
       }, { onConflict: 'user_id,client_id' });
       if(!error){ w._sync = 'synced'; synced++; }
     }catch(_){}
@@ -500,7 +584,7 @@ async function syncPending(){
 }
 
 function markNewWorkoutsPending(){
-  DB.workouts.forEach(w => { if(w.entries.length && !w._sync) w._sync = 'pending'; });
+  DB.workouts.forEach(w => { if(w.entries.length && !w._sync && !w._demo) w._sync = 'pending'; });
   localStorage.setItem(KEY, JSON.stringify(DB));
 }
 
@@ -548,7 +632,11 @@ async function restoreFromCloud(){
   for(const r of rows){
     if(haveWorkout.has(r.client_id)) continue;   // never clobber local edits
     const entries = (r.payload && r.payload.entries) || [];
-    DB.workouts.push({ id: r.client_id, date: r.date, entries, _sync: 'synced' });
+    DB.workouts.push({ id: r.client_id, date: r.date, entries,
+                       startedAt: r.payload?.startedAt ?? null,
+                       endedAt: r.payload?.endedAt ?? null,
+                       lastActivityAt: r.payload?.lastActivityAt ?? null,
+                       _sync: 'synced' });
     haveWorkout.add(r.client_id);
     added++;
     // rebuild any referenced exercises we don't have locally, so the PB /
@@ -594,6 +682,7 @@ async function initAuth(){
 }
 
 /* ---------- Utils ---------- */
+const isLocalDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
 const $ = (s,el=document)=>el.querySelector(s);
 const $$ = (s,el=document)=>[...el.querySelectorAll(s)];
 const uid = ()=> Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -615,6 +704,10 @@ function dateLabel(key){
 function fullDate(key){
   const [y,m,d]=key.split("-").map(Number);
   return new Date(y,m-1,d).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"});
+}
+function shortDate(key){
+  const [y,m,d]=key.split("-").map(Number);
+  return new Date(y,m-1,d).toLocaleDateString(undefined,{day:"numeric",month:"short"});
 }
 
 function toast(msg){
@@ -640,6 +733,79 @@ function workoutFor(dateKey, create){
   return w;
 }
 function activeWorkout(create){ return workoutFor(editDate, create); }
+
+/* ---------- Session clock ---------- */
+// Duration comes from Start → Finish, but neither press is required. Logging a
+// set auto-starts the clock, and every edit stamps lastActivityAt — so a
+// forgotten Finish settles at "last set logged" rather than running overnight.
+const STALE_MS = 3*60*60*1000;   // no sets for 3h → you've left the gym
+
+function sessionState(w){
+  if(!w || !w.startedAt) return "none";
+  if(w.endedAt) return "done";
+  return (Date.now() - (w.lastActivityAt || w.startedAt) > STALE_MS) ? "stale" : "running";
+}
+// Elapsed time. A stale session is measured to its last set, never to now.
+function sessionMs(w){
+  if(!w || !w.startedAt) return 0;
+  const end = w.endedAt || (sessionState(w)==="stale" ? (w.lastActivityAt || w.startedAt) : Date.now());
+  return Math.max(0, end - w.startedAt);
+}
+function fmtDur(ms){
+  const m = Math.round(ms/60000);
+  return m<60 ? `${m} min` : `${Math.floor(m/60)}h ${String(m%60).padStart(2,"0")}m`;
+}
+function fmtClock(ms){
+  const s = Math.floor(ms/1000), h = Math.floor(s/3600), m = Math.floor(s%3600/60);
+  return h ? `${h}:${String(m).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`
+           : `${m}:${String(s%60).padStart(2,"0")}`;
+}
+
+// Called from save() — the one choke point every mutation passes through.
+function touchSession(){
+  if(editDate !== todayKey()) return;                 // never clock a back-filled workout
+  const w = workoutFor(editDate, false);
+  if(!w || !w.entries.length) return;
+  const now = Date.now();
+  if(!w.startedAt) w.startedAt = now;                 // auto-start on the first set
+  if(w.endedAt && now - w.endedAt < STALE_MS) w.endedAt = null;   // logging again resumes
+  if(!w.endedAt) w.lastActivityAt = now;
+}
+
+function startSession(){
+  const w = activeWorkout(true);
+  if(w.startedAt && !w.endedAt) return;
+  w.startedAt = Date.now(); w.endedAt = null; w.lastActivityAt = w.startedAt;
+  save(); render();
+}
+function finishSession(){
+  const w = activeWorkout(false);
+  if(!w || !w.startedAt || w.endedAt) return 0;
+  w.endedAt = sessionState(w)==="stale" ? (w.lastActivityAt || w.startedAt) : Date.now();
+  const ms = sessionMs(w);
+  save(); render();
+  return ms;
+}
+function resumeSession(){
+  const w = activeWorkout(false);
+  if(!w || !w.startedAt) return;
+  w.endedAt = null; w.lastActivityAt = Date.now();
+  save(); render();
+}
+
+// On boot: close out any clock left running on an earlier day, and bin sessions
+// that were started but never logged into.
+function finalizeStaleSessions(){
+  const today = todayKey();
+  let changed = false;
+  for(let i=DB.workouts.length-1; i>=0; i--){
+    const w = DB.workouts[i];
+    if(w.date === today || !w.startedAt) continue;
+    if(!w.entries.length){ DB.workouts.splice(i,1); changed = true; continue; }
+    if(!w.endedAt){ w.endedAt = w.lastActivityAt || w.startedAt; changed = true; }
+  }
+  if(changed) localStorage.setItem(KEY, JSON.stringify(DB));
+}
 
 function pbFor(exId){
   let best=null;
@@ -704,6 +870,45 @@ function coachAimFor(exName){
   return null;
 }
 
+// The clock ticks by patching one text node — a full render() would tear down
+// the set form mid-typing.
+let _clockTimer = null;
+function tickClock(){
+  const w = activeWorkout(false);
+  const el = $("#sessClock");
+  if(!el || activeTab!=="log"){ clearInterval(_clockTimer); _clockTimer=null; return; }
+  if(sessionState(w)!=="running"){ clearInterval(_clockTimer); _clockTimer=null; render(); return; }
+  el.textContent = fmtClock(sessionMs(w));
+}
+
+function renderSessionBar(w, isToday){
+  const st = sessionState(w);
+  const bar = $("#sessionBar");
+  clearInterval(_clockTimer); _clockTimer = null;
+
+  if(st==="none"){
+    bar.innerHTML = isToday
+      ? `<button class="btn ghost full" id="startSessionBtn" style="margin-bottom:14px;color:var(--accent)">▶︎ Start workout</button>`
+      : "";
+    return;
+  }
+  if(st==="done"){
+    bar.innerHTML = `<div class="sess done">
+      <span class="sess-l">Duration</span>
+      <span class="sess-v">${fmtDur(sessionMs(w))}</span>
+      ${isToday ? `<button class="link small" id="resumeSessionBtn" style="color:var(--accent)">resume</button>` : ""}
+    </div>`;
+    return;
+  }
+  const stale = st==="stale";
+  bar.innerHTML = `<div class="sess ${stale?"stale":"live"}">
+    <span class="sess-l">${stale ? "Last set was a while ago" : "In progress"}</span>
+    <span class="sess-v" id="sessClock">${stale ? fmtDur(sessionMs(w)) : fmtClock(sessionMs(w))}</span>
+    <button class="btn sm primary" id="finishSessionBtn">Finish</button>
+  </div>`;
+  if(!stale) _clockTimer = setInterval(tickClock, 1000);
+}
+
 function setChipsHTML(sets){
   if(!sets.length) return `<div class="set-chips faint">no sets yet — tap to log</div>`;
   const chips = sets.map(s=>{
@@ -723,7 +928,10 @@ function renderLog(){
 
   const w = activeWorkout(false);
   const body = $("#logBody");
-  $("#finishBtn").style.display = (w && w.entries.length) ? "block":"none";
+  renderSessionBar(w, isToday);
+  // the session bar owns Finish once a clock is running; this stays for
+  // back-filled workouts, which are never clocked
+  $("#finishBtn").style.display = (w && w.entries.length && sessionState(w)==="none") ? "block":"none";
 
   if(!w || !w.entries.length){
     body.innerHTML = `<div class="empty"><div class="big">🏋️</div>No exercises logged ${isToday?"today":"on this day"}.<br>Tap "Add exercise" to start.</div>`;
@@ -740,89 +948,183 @@ function renderLog(){
     <div class="stat"><div class="n">${volStr}</div><div class="l">kg volume</div></div>
   </div>`;
 
-  // which card is in lift mode: explicit choice (-1 = all collapsed), else
-  // the last entry — the exercise you're currently working through
+  // paired exercises render as one card, so the accordion counts blocks, not
+  // entries — openEntry is a block index
+  const blocks = logBlocks(w.entries);
   const openIdx = openEntry===-1 ? -1
-    : (openEntry!==null && openEntry>=0 && openEntry<w.entries.length)
-      ? openEntry : w.entries.length-1;
-  if(editingSet && editingSet.ei !== openIdx) editingSet = null;
+    : (openEntry!==null && openEntry>=0 && openEntry<blocks.length)
+      ? openEntry : blocks.length-1;
+  const openBlock = blocks[openIdx];
+  if(editingSet && !(openBlock && openBlock.idxs.includes(editingSet.ei))) editingSet = null;
 
-  body.innerHTML = statRow + w.entries.map((en,i)=>{
-    const ex = exById(en.exId) || {name:en.name,muscle:"Other"};
-    const isOpen = i === openIdx;
+  body.innerHTML = statRow + blocks.map((b,bi)=>
+    b.idxs.length>1 ? supersetCardHTML(w, b, bi, bi===openIdx)
+                    : entryCardHTML(w, b.idxs[0], bi, bi===openIdx)
+  ).join("");
+}
 
-    // ── collapsed: one glance — name + the sets banked so far ──
-    if(!isOpen){
-      return `<div class="card ex-card">
-        <div class="ex-head" data-card-head="${i}">
-          <div class="grow" style="min-width:0">
-            <div class="ex-name">${esc(ex.name)}</div>
-            ${setChipsHTML(en.sets)}
-          </div>
-          <span class="caret">▼</span>
-        </div>
-      </div>`;
+// Entries sharing a `group` are a superset and collapse into a single block.
+function logBlocks(entries){
+  const blocks = [], seen = new Set();
+  entries.forEach((en,i)=>{
+    if(seen.has(i)) return;
+    if(en.group){
+      const idxs = entries.reduce((a,e,j)=>(e.group===en.group && a.push(j), a), []);
+      idxs.forEach(j=>seen.add(j));
+      blocks.push({ group:en.group, idxs });
+    } else { seen.add(i); blocks.push({ idxs:[i] }); }
+  });
+  return blocks;
+}
+
+function ctxStripHTML(en, ex, i){
+  const pb = pbFor(en.exId);
+  const last = lastSession(en.exId);
+  const lastTop = last ? last.sets.reduce((a,b)=> b.weight>a.weight?b:a, last.sets[0]) : null;
+  const aim = coachAimFor(ex.name);
+  return `<div class="ctx-strip">
+    <div class="ctx"><div class="cl">LAST</div><div class="cv">${lastTop ? `${fmtKg(lastTop.weight)}×${lastTop.reps}` : '—'}</div></div>
+    ${aim ? `<div class="ctx aim" data-aim="${i}" data-aim-w="${aim.target_weight}" data-aim-r="${aim.target_reps}" title="Tap to use">
+      <div class="cl">AIM${aim.expected_change!=null ? (aim.expected_change>0.5?' ↑':aim.expected_change<-0.5?' ↓':' →') : ''}</div>
+      <div class="cv">${fmtKg(aim.target_weight)}×${aim.target_reps}</div></div>` : ''}
+    <div class="ctx pbx tappable" data-pbpop="${en.exId}" title="Tap for progression">
+      <div class="cl">PB ↗</div><div class="cv">${pb ? `${fmtKg(pb.weight)}×${pb.reps}` : '—'}</div></div>
+  </div>`;
+}
+
+function setRowsHTML(en, i){
+  return en.sets.map((s,si)=>{
+    const tag = s.type==='work'?'work':s.type==='drop'?'drop':'warm';
+    const label = s.type==='work'?'WORK':s.type==='drop'?'DROP':'WARMUP';
+    const isEditing = editingSet && editingSet.ei===i && editingSet.si===si;
+    let valHtml;
+    if(s.type==='drop'){
+      const chain = [{weight:s.weight,reps:s.reps}, ...(s.drops||[])]
+        .map(d=>`${fmtKg(d.weight)}<small>×${d.reps}</small>`).join(' <span class="faint">→</span> ');
+      valHtml = `<span class="val" style="grid-column:2/4">${chain}</span>`;
+    } else {
+      valHtml = `<span class="val">${fmtKg(s.weight)}</span><span class="val">${s.reps} <small>reps</small></span>`;
     }
-
-    // ── expanded: lift mode ──
-    const pb = pbFor(en.exId);
-    const last = lastSession(en.exId);
-    const lastTop = last ? last.sets.reduce((a,b)=> b.weight>a.weight?b:a, last.sets[0]) : null;
-    const aim = coachAimFor(ex.name);
-
-    const ctx = `<div class="ctx-strip">
-      <div class="ctx"><div class="cl">LAST</div><div class="cv">${lastTop ? `${fmtKg(lastTop.weight)}×${lastTop.reps}` : '—'}</div></div>
-      ${aim ? `<div class="ctx aim" data-aim="${i}" data-aim-w="${aim.target_weight}" data-aim-r="${aim.target_reps}" title="Tap to use">
-        <div class="cl">AIM${aim.expected_change!=null ? (aim.expected_change>0.5?' ↑':aim.expected_change<-0.5?' ↓':' →') : ''}</div>
-        <div class="cv">${fmtKg(aim.target_weight)}×${aim.target_reps}</div></div>` : ''}
-      <div class="ctx pbx"><div class="cl">PB</div><div class="cv">${pb ? `${fmtKg(pb.weight)}×${pb.reps}` : '—'}</div></div>
-    </div>`;
-
-    const sets = en.sets.map((s,si)=>{
-      const tag = s.type==='work'?'work':s.type==='drop'?'drop':'warm';
-      const label = s.type==='work'?'WORK':s.type==='drop'?'DROP':'WARMUP';
-      const isEditing = editingSet && editingSet.ei===i && editingSet.si===si;
-      let valHtml;
-      if(s.type==='drop'){
-        const chain = [{weight:s.weight,reps:s.reps}, ...(s.drops||[])]
-          .map(d=>`${fmtKg(d.weight)}<small>×${d.reps}</small>`).join(' <span class="faint">→</span> ');
-        valHtml = `<span class="val" style="grid-column:2/4">${chain}</span>`;
-      } else {
-        valHtml = `<span class="val">${fmtKg(s.weight)}</span><span class="val">${s.reps} <small>reps</small></span>`;
-      }
-      return `<div class="set editable${isEditing?' editing':''}" data-edit-set="${i}:${si}">
-        <span class="typetag ${tag}">${label}</span>
-        ${valHtml}
-        <button class="iconbtn" data-dup-set="${i}:${si}" aria-label="Repeat set" style="color:var(--accent);font-size:18px">⧉</button>
-        <button class="iconbtn" data-del-set="${i}:${si}" aria-label="Delete set">✕</button>
-      </div>`;
-    }).join("");
-
-    // prefill: the set being edited > this entry's last set > last session's top
-    const editSet = editingSet ? en.sets[editingSet.si] : null;
-    const prevSet = en.sets.length ? en.sets[en.sets.length-1] : null;
-    const pre = editSet
-      ? {type:editSet.type, w:editSet.weight, r:editSet.reps, drops:editSet.drops}
-      : prevSet
-        ? {type:prevSet.type==='drop'?'work':prevSet.type, w:prevSet.weight, r:prevSet.reps}
-        : lastTop ? {type:'work', w:lastTop.weight, r:lastTop.reps} : {};
-
-    return `<div class="card ex-card open">
-      <div class="ex-head" data-card-head="${i}">
-        <div class="grow" style="min-width:0">
-          <div class="ex-name">${esc(ex.name)}</div>
-          <div class="row" style="gap:6px;margin-top:5px"><span class="chip"><span class="dot"></span>${esc(ex.muscle)}</span></div>
-        </div>
-        <button class="iconbtn" data-del-entry="${i}">🗑</button>
-        <span class="caret">▼</span>
-      </div>
-      ${ctx}
-      ${sets}
-      ${editingSet ? `<div class="edit-bar"><span>Editing set ${editingSet.si+1}</span><button class="link small" data-cancel-edit>cancel</button></div>` : ''}
-      ${setFormHTML(i, pre, !!editingSet)}
-      ${(!editingSet && en.sets.length) ? `<button class="btn ghost again-btn" data-again="${i}">↻ Same as last set</button>` : ''}
+    return `<div class="set editable${isEditing?' editing':''}" data-edit-set="${i}:${si}">
+      <span class="typetag ${tag}">${label}</span>
+      ${valHtml}
+      <button class="iconbtn" data-dup-set="${i}:${si}" aria-label="Repeat set" style="color:var(--accent);font-size:18px">⧉</button>
+      <button class="iconbtn" data-del-set="${i}:${si}" aria-label="Delete set">✕</button>
     </div>`;
   }).join("");
+}
+
+// prefill: the set being edited > this entry's last set > last session's top
+function prefillFor(en, i){
+  const editSet = (editingSet && editingSet.ei===i) ? en.sets[editingSet.si] : null;
+  const prevSet = en.sets.length ? en.sets[en.sets.length-1] : null;
+  if(editSet) return {type:editSet.type, w:editSet.weight, r:editSet.reps, drops:editSet.drops};
+  if(prevSet) return {type:prevSet.type==='drop'?'work':prevSet.type, w:prevSet.weight, r:prevSet.reps};
+  const last = lastSession(en.exId);
+  const lastTop = last ? last.sets.reduce((a,b)=> b.weight>a.weight?b:a, last.sets[0]) : null;
+  return lastTop ? {type:'work', w:lastTop.weight, r:lastTop.reps} : {};
+}
+
+function entryCardHTML(w, i, bi, isOpen){
+  const en = w.entries[i];
+  const ex = exById(en.exId) || {name:en.name,muscle:"Other"};
+
+  // ── collapsed: one glance — name + the sets banked so far ──
+  if(!isOpen){
+    return `<div class="card ex-card">
+      <div class="ex-head" data-card-head="${bi}">
+        <div class="grow" style="min-width:0">
+          <div class="ex-name">${esc(ex.name)}</div>
+          ${setChipsHTML(en.sets)}
+        </div>
+        <span class="caret">▼</span>
+      </div>
+    </div>`;
+  }
+
+  // ── expanded: lift mode ──
+  return `<div class="card ex-card open">
+    <div class="ex-head" data-card-head="${bi}">
+      <div class="grow" style="min-width:0">
+        <div class="ex-name">${esc(ex.name)}</div>
+        <div class="row" style="gap:6px;margin-top:5px"><span class="chip"><span class="dot"></span>${esc(ex.muscle)}</span></div>
+      </div>
+      <button class="iconbtn" data-del-entry="${i}">🗑</button>
+      <span class="caret">▼</span>
+    </div>
+    ${ctxStripHTML(en, ex, i)}
+    ${setRowsHTML(en, i)}
+    ${editingSet ? `<div class="edit-bar"><span>Editing set ${editingSet.si+1}</span><button class="link small" data-cancel-edit>cancel</button></div>` : ''}
+    ${setFormHTML(i, prefillFor(en,i), !!editingSet)}
+    ${(!editingSet && en.sets.length) ? `<button class="btn ghost again-btn" data-again="${i}">↻ Same as last set</button>` : ''}
+    <button class="btn ghost full sm superset-btn" data-superset="${i}">⇄ Superset with…</button>
+  </div>`;
+}
+
+// A superset logs by round: one form, both lifts, one Add.
+function supersetCardHTML(w, block, bi, isOpen){
+  const ens = block.idxs.map(i=>w.entries[i]);
+  const exs = ens.map((en,k)=>exById(en.exId) || {name:en.name,muscle:"Other"});
+  const names = exs.map(e=>esc(e.name)).join(' <span class="faint">⇄</span> ');
+
+  if(!isOpen){
+    return `<div class="card ex-card">
+      <div class="ex-head" data-card-head="${bi}">
+        <div class="grow" style="min-width:0">
+          <div class="ss-tag">⇄ Superset</div>
+          <div class="ex-name">${names}</div>
+          ${setChipsHTML(ens.flatMap(en=>en.sets))}
+        </div>
+        <span class="caret">▼</span>
+      </div>
+    </div>`;
+  }
+
+  // rounds pair set N of each lift; a ragged tail just renders short
+  const rounds = Math.max(...ens.map(en=>en.sets.length));
+  let roundsHTML = "";
+  for(let r=0;r<rounds;r++){
+    const lines = ens.map((en,k)=>{
+      const s = en.sets[r];
+      const i = block.idxs[k];
+      if(!s) return `<div class="rd-line faint"><span class="rd-n">${esc(exs[k].name)}</span><span>—</span></div>`;
+      // no tap-to-edit inside a round — a per-set editor in a paired form is
+      // ambiguous; delete the round and re-add instead
+      return `<div class="rd-line">
+        <span class="rd-n">${esc(exs[k].name)}</span>
+        <span class="rd-v">${fmtKg(s.weight)} <small>× ${s.reps}</small></span>
+      </div>`;
+    }).join("");
+    roundsHTML += `<div class="round">
+      <div class="rd-head"><span class="rd-lbl">ROUND ${r+1}</span>
+        <button class="iconbtn" data-del-round="${block.group}:${r}" aria-label="Delete round">✕</button></div>
+      ${lines}
+    </div>`;
+  }
+
+  const formRows = ens.map((en,k)=>{
+    const pre = prefillFor(en, block.idxs[k]);
+    return `<div class="rd-form" data-ssrow="${block.idxs[k]}">
+      <span class="rd-n ellip">${esc(exs[k].name)}</span>
+      <input class="in" inputmode="decimal" data-ssw placeholder="kg" value="${pre.w ?? ''}">
+      <input class="in" inputmode="numeric" data-ssr placeholder="reps" value="${pre.r ?? ''}">
+    </div>`;
+  }).join("");
+
+  return `<div class="card ex-card open">
+    <div class="ex-head" data-card-head="${bi}">
+      <div class="grow" style="min-width:0">
+        <div class="ss-tag">⇄ Superset</div>
+        <div class="ex-name">${names}</div>
+      </div>
+      <span class="caret">▼</span>
+    </div>
+    ${roundsHTML}
+    <div class="grouphdr" style="margin:14px 0 8px 0">NEXT ROUND</div>
+    <div data-ssform="${block.group}">${formRows}</div>
+    <button class="btn primary full" data-addround="${block.group}" style="margin-top:10px">+ Add round</button>
+    <button class="btn ghost full sm" data-unlink="${block.group}" style="margin-top:8px;color:var(--muted)">Unlink superset</button>
+  </div>`;
 }
 
 function setFormHTML(entryIdx, pre, editing){
@@ -835,10 +1137,12 @@ function setFormHTML(entryIdx, pre, editing){
       <button class="iconbtn" data-deldrop aria-label="Remove drop">✕</button>
     </div>`).join('');
   return `<div data-setform="${entryIdx}">
-    <div class="seg${t==='warm'?' warmon':''}${t==='drop'?' dropon':''}" data-typeseg>
-      <button data-type="work"${t==='work'?' class="on"':''}>Working</button>
-      <button data-type="warm"${t==='warm'?' class="on"':''}>Warmup</button>
-      <button data-type="drop"${t==='drop'?' class="on"':''}>Drop</button>
+    <div class="typerow" data-typeseg>
+      <div class="seg${t==='warm'?' warmon':''}${t==='drop'?' dropon':''}" data-segbox>
+        <button data-type="work"${t==='work'||t==='warm'?' class="on"':''}>Working</button>
+        <button data-type="drop"${t==='drop'?' class="on"':''}>Drop</button>
+      </div>
+      <button class="warmtog${t==='warm'?' on':''}" data-type="warm">Warm-up</button>
     </div>
     <div class="setform">
       <div class="field" style="margin:0">
@@ -898,10 +1202,11 @@ function renderHistory(){
       return `<div class="row between" style="padding:6px 0"><span class="ellip">${esc(ex.name)}</span>${detail}</div>`;
     }).join("");
     const syncDot = w._sync ? `<span class="sync-dot ${w._sync}"></span>` : '';
+    const dur = w.startedAt ? ` · ${fmtDur(sessionMs(w))}` : '';
     return `<div class="card">
       <div class="row between" style="margin-bottom:8px">
         <span class="wk-date">${dateLabel(w.date)}</span>
-        <span class="row" style="gap:8px">${syncDot}<span class="faint small">${w.entries.length} exercises · ${nSets} sets</span></span>
+        <span class="row" style="gap:8px">${syncDot}<span class="faint small">${w.entries.length} exercises · ${nSets} sets${dur}</span></span>
       </div>
       <div class="chips" style="margin-bottom:6px">${muscles.map(m=>`<span class="chip">${esc(m)}</span>`).join("")}</div>
       ${exLines}
@@ -1185,6 +1490,7 @@ function renderMore(){
   $("#statWorkouts").textContent = DB.workouts.filter(w=>w.entries.length).length;
   $("#statEx").textContent = DB.exercises.length;
   $("#statSets").textContent = DB.workouts.reduce((a,w)=>a+w.entries.reduce((b,en)=>b+en.sets.length,0),0);
+  $("#devCard").style.display = isLocalDev ? "block" : "none";
 }
 
 /* ============================================================
@@ -1305,6 +1611,62 @@ function openAddExercise(opts){
   renderPicks();
 }
 
+/* ---------- Supersets ---------- */
+// Pairing keeps the two entries adjacent so the block reads in the order you
+// actually lift them.
+function addSupersetPartner(anchorIdx, exId){
+  const w = activeWorkout(true);
+  const anchor = w.entries[anchorIdx];
+  if(!anchor){ closeSheet(); return; }
+  if(w.entries.some(en=>en.exId===exId)){ toast("Already in this workout"); closeSheet(); return; }
+  const ex = exById(exId);
+  const g = anchor.group || uid();
+  anchor.group = g;
+  w.entries.splice(anchorIdx+1, 0, { exId, name:ex.name, sets:[], group:g });
+  save();
+  editingSet = null;
+  openEntry = logBlocks(w.entries).findIndex(b=>b.group===g);   // keep the pair open
+  closeSheet();
+  if(activeTab!=="log") switchTab("log"); else render();
+  toast("Superset created");
+}
+
+function addRound(group){
+  const w = activeWorkout(true);
+  const form = $(`[data-ssform="${group}"]`);
+  if(!form) return;
+  const rows = $$("[data-ssrow]", form).map(row=>({
+    i: +row.dataset.ssrow,
+    weight: parseFloat($("[data-ssw]",row).value),
+    reps: parseInt($("[data-ssr]",row).value,10),
+  }));
+  const valid = rows.filter(r=>r.weight>=0 && r.reps>0);
+  if(!valid.length){ toast("Enter weight & reps"); return; }
+  const prevPBs = valid.map(r=>pbFor(w.entries[r.i].exId));
+  valid.forEach(r=>w.entries[r.i].sets.push({ type:"work", weight:r.weight, reps:r.reps }));
+  save(); render();
+  const gotPB = valid.some((r,k)=>{
+    const nb = pbFor(w.entries[r.i].exId), pb = prevPBs[k];
+    return nb && (!pb || nb.weight>pb.weight || (nb.weight===pb.weight && nb.reps>pb.reps));
+  });
+  toast(gotPB ? "🏆 New PB!" : (valid.length<rows.length ? "Round added (one lift skipped)" : "Round added"));
+}
+
+// Deleting a round pulls set N from every lift in the pair, so they stay aligned.
+function delRound(group, r){
+  const w = activeWorkout(false); if(!w) return;
+  w.entries.forEach(en=>{ if(en.group===group && en.sets[r]) en.sets.splice(r,1); });
+  editingSet = null;
+  save(); render(); toast("Round deleted");
+}
+
+function unlinkSuperset(group){
+  const w = activeWorkout(false); if(!w) return;
+  w.entries.forEach(en=>{ if(en.group===group) delete en.group; });
+  editingSet = null; openEntry = null;
+  save(); render(); toast("Unlinked");
+}
+
 function addEntry(exId){
   const w = activeWorkout(true);
   if(!w.entries.some(en=>en.exId===exId)){
@@ -1319,18 +1681,142 @@ function addEntry(exId){
   toast("Added");
 }
 
-function openExDetail(exId){
-  const ex = exById(exId); if(!ex) return;
-  const pb = pbFor(exId);
-  const hist=[];
+/* ---------- Progression chart ---------- */
+// Top-set weight across recent sessions. One measure on one axis — sets and
+// volume stay in the list below rather than becoming a second y-scale, which
+// would invent a correlation that isn't in the data.
+const CHART_N = 12;
+// More than one chart can be alive at once (the exercise sheet and the PB
+// popover), so points are keyed per instance rather than held in one global.
+let _charts = {}, _chartSeq = 0;
+
+// Every session this exercise appears in, newest first — the shape both the
+// chart and the detail list read.
+function exHistory(exId){
+  const hist = [];
   for(const w of DB.workouts){
     const en = w.entries.find(e=>e.exId===exId); if(!en) continue;
     const work = en.sets.filter(isHardSet); if(!work.length) continue;
     const top = work.reduce((a,b)=> (b.weight>a.weight||(b.weight===a.weight&&b.reps>a.reps))?b:a, work[0]);
-    const vol = en.sets.reduce((a,s)=>a+setVolume(s),0);
-    hist.push({ date:w.date, top, sets:en.sets.length, vol });
+    hist.push({ date:w.date, top, sets:en.sets.length, vol:en.sets.reduce((a,s)=>a+setVolume(s),0) });
   }
   hist.sort((a,b)=> a.date<b.date?1:-1);
+  return hist;
+}
+
+function progressChartHTML(hist, pb){
+  const pts = hist.slice(0, CHART_N).reverse();     // hist arrives newest-first
+  const cid = "c"+(++_chartSeq);
+  _charts[cid] = { pts, pb };
+  for(const k of Object.keys(_charts)) if(+k.slice(1) < _chartSeq-3) delete _charts[k];
+  if(pts.length < 2)
+    return `<div class="faint small" style="padding:10px 0">Log this lift on two separate days to see a trend.</div>`;
+
+  const W=320, H=134, L=30, R=42, T=16, B=26;       // B leaves room for the date band
+  const iw=W-L-R, ih=H-T-B;
+  const ws = pts.map(p=>p.top.weight);
+  const maxW = Math.max(...ws), minW = Math.min(...ws);
+  let lo=minW, hi=maxW;
+  if(hi===lo){ hi=lo+1; lo=Math.max(0,lo-1); }      // a flat line sits mid-plot
+  const pad=(hi-lo)*0.18; lo-=pad; hi+=pad;
+
+  const X = i => L + i*iw/(pts.length-1);
+  const Y = v => T + ih - (v-lo)/(hi-lo)*ih;
+  const isPB = p => pb && p.top.weight===pb.weight && p.top.reps===pb.reps;
+
+  const line = pts.map((p,i)=>`${X(i).toFixed(1)},${Y(p.top.weight).toFixed(1)}`).join(" ");
+  const area = `${L},${T+ih} ${line} ${(L+iw).toFixed(1)},${T+ih}`;
+
+  // hairline rules at the real high/low, not the padded bounds
+  const rule = (v,label)=>`<line class="grid" x1="${L}" x2="${L+iw}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"></line>
+    <text class="ax" x="${L-6}" y="${(Y(v)+3.5).toFixed(1)}" text-anchor="end">${label}</text>`;
+  const grid = rule(maxW, maxW) + (minW!==maxW ? rule(minW, minW) : "");
+
+  // visible dots first, then oversized transparent hit targets on top
+  const dots = pts.map((p,i)=>
+    `<circle class="pt${isPB(p)?" pb":""}" data-pt="${i}" cx="${X(i).toFixed(1)}" cy="${Y(p.top.weight).toFixed(1)}" r="4"></circle>`).join("")
+    + pts.map((p,i)=>
+    `<circle class="hit" data-pt="${i}" cx="${X(i).toFixed(1)}" cy="${Y(p.top.weight).toFixed(1)}" r="14"></circle>`).join("");
+
+  const li = pts.length-1, last = pts[li];
+  // one direct label — the endpoint. Every other value is in the list below.
+  const endLabel = `<text class="end" x="${(X(li)+9).toFixed(1)}" y="${(Y(last.top.weight)+4).toFixed(1)}">${fmtKg(last.top.weight)}</text>`;
+
+  const xLabels = `<text class="ax" x="${L}" y="${H-8}" text-anchor="start">${shortDate(pts[0].date)}</text>
+    <text class="ax" x="${L+iw}" y="${H-8}" text-anchor="end">${shortDate(last.date)}</text>`;
+
+  return `<div class="chart-wrap" data-chart="${cid}">
+    <div class="chart-read">${chartReadHTML(last, isPB(last), true)}</div>
+    <svg class="spark" viewBox="0 0 ${W} ${H}" role="img"
+         aria-label="Top-set weight over the last ${pts.length} sessions, ${minW} to ${maxW} kg">
+      ${grid}
+      <polygon class="fill" points="${area}"></polygon>
+      <polyline class="ln" points="${line}"></polyline>
+      ${dots}${endLabel}${xLabels}
+    </svg>
+  </div>`;
+}
+
+// One delegated handler covers every chart on the page; all lookups are scoped
+// to the tapped chart's own wrapper so the sheet and the popover never cross.
+document.addEventListener("click", e=>{
+  const pt = e.target.closest("[data-pt]");
+  if(!pt) return;
+  const wrap = pt.closest(".chart-wrap"); if(!wrap) return;
+  const data = _charts[wrap.dataset.chart]; if(!data) return;
+  const i = +pt.dataset.pt, p = data.pts[i]; if(!p) return;
+  // radius via attribute, not CSS — the `r` geometry property isn't safe everywhere
+  $$(".spark .pt", wrap).forEach(c=>{ c.classList.remove("on"); c.setAttribute("r","4"); });
+  $$(`.spark .pt[data-pt="${i}"]`, wrap).forEach(c=>{ c.classList.add("on"); c.setAttribute("r","5.5"); });
+  const isPB = data.pb && p.top.weight===data.pb.weight && p.top.reps===data.pb.reps;
+  $(".chart-read", wrap).innerHTML = chartReadHTML(p, isPB, i===data.pts.length-1);
+});
+
+/* ---------- PB popover ---------- */
+// A light anchored panel, not a sheet — reading a trend mid-workout shouldn't
+// cover the set you're about to log.
+function openPBPop(exId, anchorEl){
+  const ex = exById(exId); if(!ex) return;
+  const pb = pbFor(exId), hist = exHistory(exId);
+  const pop = $("#pbPop"), card = $(".pop-card", pop);
+  card.innerHTML = `
+    <div class="pop-head">
+      <div style="min-width:0">
+        <div class="pop-name ellip">${esc(ex.name)}</div>
+        <div class="tiny muted">${pb ? `PB ${fmtKg(pb.weight)}×${pb.reps} · ${dateLabel(pb.date)}` : "No PB yet"}</div>
+      </div>
+      <button class="iconbtn" data-popclose aria-label="Close">✕</button>
+    </div>
+    ${progressChartHTML(hist, pb)}
+    <button class="link small" data-popdetail="${exId}" style="color:var(--accent);margin-top:6px">Full history →</button>`;
+
+  pop.classList.add("open");
+  // measure after it's displayed, then clamp inside the viewport
+  const r = anchorEl.getBoundingClientRect();
+  const cw = card.offsetWidth, ch = card.offsetHeight;
+  const left = Math.max(10, Math.min(r.left + r.width/2 - cw/2, window.innerWidth - cw - 10));
+  const below = r.bottom + 8;
+  const top = (below + ch > window.innerHeight - 10) ? Math.max(10, r.top - ch - 8) : below;
+  card.style.left = left+"px";
+  card.style.top  = top+"px";
+}
+function closePBPop(){ $("#pbPop").classList.remove("open"); }
+
+$("#pbPop").addEventListener("click", e=>{
+  if(e.target.id === "pbPop" || e.target.closest("[data-popclose]")){ closePBPop(); return; }
+  const d = e.target.closest("[data-popdetail]");
+  if(d){ closePBPop(); switchTab("ex"); openExDetail(d.dataset.popdetail); }
+});
+
+function chartReadHTML(p, pbFlag, latest){
+  return `<span class="cr-d">${latest?"Latest":""} ${dateLabel(p.date)}</span>
+    <span class="cr-v">${fmtKg(p.top.weight)} <span class="muted">× ${p.top.reps}</span>${pbFlag?' <span class="pbflag">PB</span>':''}</span>`;
+}
+
+function openExDetail(exId){
+  const ex = exById(exId); if(!ex) return;
+  const pb = pbFor(exId);
+  const hist = exHistory(exId);
 
   const rows = hist.length? hist.map(h=>{
     const isPB = pb && h.top.weight===pb.weight && h.top.reps===pb.reps;
@@ -1360,6 +1846,8 @@ function openExDetail(exId){
     <div class="field" style="margin-top:10px"><label>Date</label>
       <input type="date" class="datepick" id="resDate" value="${todayKey()}" max="${todayKey()}" style="width:100%"></div>
     <div class="tiny faint" style="margin:8px 0 2px">Logs a working set on that date — updates your PB if it beats it.</div>
+    <div class="grouphdr" style="margin-left:0">PROGRESSION <span class="faint" style="font-weight:600;text-transform:none;letter-spacing:0">· top set</span></div>
+    ${progressChartHTML(hist, pb)}
     <div class="grouphdr" style="margin-left:0">SESSION HISTORY</div>
     ${rows}
     <hr class="hr">
@@ -1542,21 +2030,40 @@ $("#finishBtn").addEventListener("click",()=>{
   switchTab("history");
 });
 
+$("#sessionBar").addEventListener("click",e=>{
+  if(e.target.closest("#startSessionBtn")){ startSession(); toast("Clock started ⏱"); return; }
+  if(e.target.closest("#resumeSessionBtn")){ resumeSession(); toast("Clock resumed"); return; }
+  if(e.target.closest("#finishSessionBtn")){
+    const ms = finishSession();
+    toast(`Finished · ${fmtDur(ms)}`);
+    switchTab("history");
+  }
+});
+
 $("#logBody").addEventListener("click",e=>{
   const seg = e.target.closest("[data-type]");
   if(seg){
     const wrap = seg.closest("[data-typeseg]");
-    $$("button",wrap).forEach(b=>b.classList.remove("on"));
-    seg.classList.add("on");
-    const isDrop = seg.dataset.type==="drop";
-    wrap.classList.toggle("warmon", seg.dataset.type==="warm");
-    wrap.classList.toggle("dropon", isDrop);
+    const box = $("[data-segbox]", wrap), warmBtn = $(".warmtog", wrap);
+    if(seg.classList.contains("warmtog")){
+      const on = !warmBtn.classList.contains("on");
+      warmBtn.classList.toggle("on", on);
+      // a warm-up is always a straight set, never a drop
+      if(on) $$("button",box).forEach(b=>b.classList.toggle("on", b.dataset.type==="work"));
+    } else {
+      $$("button",box).forEach(b=>b.classList.remove("on"));
+      seg.classList.add("on");
+      warmBtn.classList.remove("on");        // picking Working/Drop clears warm-up
+    }
+    const type = formType(wrap);
+    box.classList.toggle("warmon", type==="warm");
+    box.classList.toggle("dropon", type==="drop");
     const form = seg.closest("[data-setform]");
     const dw = $("[data-dropwrap]", form);
     if(dw){
-      dw.style.display = isDrop ? "block" : "none";
-      $("[data-wlabel]", form).textContent = isDrop ? "Top set (kg)" : "Weight (kg)";
-      if(isDrop && !$("[data-droprow]", form)) addDropRow(form);   // start with one drop
+      dw.style.display = type==="drop" ? "block" : "none";
+      $("[data-wlabel]", form).textContent = type==="drop" ? "Top set (kg)" : "Weight (kg)";
+      if(type==="drop" && !$("[data-droprow]", form)) addDropRow(form);   // start with one drop
     }
     return;
   }
@@ -1575,6 +2082,8 @@ $("#logBody").addEventListener("click",e=>{
   // ── log v2 interactions ──
   const cancel = e.target.closest("[data-cancel-edit]");
   if(cancel){ editingSet = null; render(); return; }
+  const pbp = e.target.closest("[data-pbpop]");
+  if(pbp){ openPBPop(pbp.dataset.pbpop, pbp); return; }
   const aim = e.target.closest("[data-aim]");
   if(aim){
     const form = $(`[data-setform="${aim.dataset.aim}"]`);
@@ -1582,6 +2091,23 @@ $("#logBody").addEventListener("click",e=>{
     toast("Aim loaded — hit Add");
     return;
   }
+  // ── supersets ──
+  const ss = e.target.closest("[data-superset]");
+  if(ss){
+    const anchor = +ss.dataset.superset;
+    openAddExercise({ title:"Pair with…", onChoose:(exId)=>addSupersetPartner(anchor, exId) });
+    return;
+  }
+  const round = e.target.closest("[data-addround]");
+  if(round){ addRound(round.dataset.addround); return; }
+  const delr = e.target.closest("[data-del-round]");
+  if(delr){
+    const [g, r] = delr.dataset.delRound.split(":");
+    delRound(g, +r);
+    return;
+  }
+  const unlink = e.target.closest("[data-unlink]");
+  if(unlink){ unlinkSuperset(unlink.dataset.unlink); return; }
   const again = e.target.closest("[data-again]");
   if(again){
     const wk = activeWorkout(false); if(!wk) return;
@@ -1609,6 +2135,15 @@ $("#logBody").addEventListener("click",e=>{
   }
 });
 
+// The set type is the segment choice (work|drop) unless the warm-up toggle
+// overrides it — so it can't be read from a single ".on" button any more.
+function formType(scope){
+  const wrap = scope.matches && scope.matches("[data-typeseg]") ? scope : $("[data-typeseg]", scope);
+  if(!wrap) return "work";
+  if($(".warmtog", wrap).classList.contains("on")) return "warm";
+  return ($("[data-segbox] [data-type].on", wrap) || {}).dataset?.type || "work";
+}
+
 function addDropRow(form){
   const rows = $("[data-droprows]", form);
   const div = document.createElement("div");
@@ -1621,7 +2156,7 @@ function addDropRow(form){
 
 function addSet(entryIdx){
   const form = $(`[data-setform="${entryIdx}"]`);
-  const type = $("[data-type].on",form).dataset.type;
+  const type = formType(form);
   const w = parseFloat($("[data-w]",form).value);
   const r = parseInt($("[data-r]",form).value,10);
   if(!(w>=0) || !(r>0)){ toast(type==="drop"?"Enter the top set":"Enter weight & reps"); return; }
@@ -1736,6 +2271,100 @@ $("#sheet").addEventListener("click",e=>{
   }
 });
 
+/* ---------- Dev seed (localhost only) ---------- */
+// Real history sits behind Google auth, which only redirects back to the
+// deployed origin — so on localhost there's nothing to look at. This fabricates
+// a believable 12-session block instead. Everything it creates carries _demo,
+// which keeps it out of sync() and makes it removable in one go.
+const DEMO_SESSIONS = [
+  { lifts:[ ["Barbell Row","Back",60,2.5,8,4], ["Lat Pulldown","Back",50,2.5,10,3],
+            ["Preacher Curl","Biceps",22.5,1.25,10,3], ["Hammer Curl","Biceps",14,1,12,3] ] },
+  { lifts:[ ["Bench Press","Chest",70,2.5,8,4], ["Overhead Press","Shoulders",40,1.25,8,3],
+            ["Cable Fly","Chest",15,1.25,12,3], ["Tricep Pushdown","Triceps",25,1.25,12,3] ] },
+  { lifts:[ ["Back Squat","Quads",90,5,6,4], ["Romanian Deadlift","Hamstrings",80,2.5,8,3],
+            ["Leg Curl","Hamstrings",40,2.5,12,3], ["Calf Raise","Calves",60,2.5,15,3] ] },
+];
+const DEMO_PLAN = {
+  generated_at: new Date().toISOString(),
+  groups: {
+    Back:  { priority:"high", why:"Volume has been below target for two weeks running.",
+             focus:[ {exercise:"Barbell Row", app_exercise:"Barbell Row", target_weight:70, target_reps:8, expected_change:2.5},
+                     {exercise:"Lat Pulldown", app_exercise:"Lat Pulldown", target_weight:60, target_reps:10, expected_change:2.5} ] },
+    Arms:  { priority:"medium", why:"Progressing steadily — hold the current ramp.",
+             focus:[ {exercise:"Preacher Curl", app_exercise:"Preacher Curl", target_weight:26.25, target_reps:10, expected_change:1.25},
+                     {exercise:"Hammer Curl", app_exercise:"Hammer Curl", target_weight:17, target_reps:12, expected_change:0} ] },
+    Chest: { priority:"medium", why:"Bench is on track; keep press volume where it is.",
+             focus:[ {exercise:"Bench Press", app_exercise:"Bench Press", target_weight:77.5, target_reps:8, expected_change:2.5} ] },
+    Legs:  { priority:"high", why:"Squat has stalled — the last two sessions repeated a load.",
+             focus:[ {exercise:"Back Squat", app_exercise:"Back Squat", target_weight:105, target_reps:6, expected_change:-2.5} ] },
+  }
+};
+
+const round25 = n => Math.round(n*4)/4;
+function demoDateKey(daysAgo){
+  const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-daysAgo);
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+function ensureDemoExercise(name, muscle){
+  let ex = DB.exercises.find(e=>e.name.toLowerCase()===name.toLowerCase());
+  if(!ex){ ex = { id:uid(), name, muscle, _demo:true }; DB.exercises.push(ex); }
+  return ex;
+}
+
+function seedDemoData(){
+  clearDemoData(true);
+  const daysAgo = [40,37,33,30,26,23,19,16,12,9,5,2];      // oldest first, so loads climb
+  daysAgo.forEach((ago,k)=>{
+    const tpl = DEMO_SESSIONS[k % DEMO_SESSIONS.length];
+    const cycle = Math.floor(k / DEMO_SESSIONS.length);     // 0..3 — one bump per cycle
+    const start = new Date(); start.setDate(start.getDate()-ago); start.setHours(18,15,0,0);
+    const durMin = 52 + ((k*7)%22);
+    const w = { id:uid(), date:demoDateKey(ago), entries:[], _demo:true, _sync:'synced',
+                startedAt:start.getTime(),
+                lastActivityAt:start.getTime()+(durMin-3)*60000,
+                endedAt:start.getTime()+durMin*60000 };
+    tpl.lifts.forEach(([name,muscle,base,inc,reps,nsets],li)=>{
+      const ex = ensureDemoExercise(name, muscle);
+      // a stall every 4th session, so the chart isn't a synthetic straight line
+      const weight = round25(base + inc*cycle - (k%4===3 ? inc : 0));
+      const sets = [];
+      if(li===0) sets.push({ type:"warm", weight:round25(weight*0.5), reps:10 });
+      for(let s=0;s<nsets;s++) sets.push({ type:"work", weight, reps:Math.max(4, reps - (s>=2?1:0)) });
+      if(li===tpl.lifts.length-1 && k%2===0)
+        sets.push({ type:"drop", weight, reps,
+                    drops:[{weight:round25(weight*0.75),reps:8},{weight:round25(weight*0.5),reps:6}] });
+      w.entries.push({ exId:ex.id, name:ex.name, sets });
+    });
+    DB.workouts.push(w);
+  });
+
+  // pair the two curls on the latest session that actually has both, so
+  // supersets have a subject (the most recent day is not always a pull day)
+  const pull = [...DB.workouts].reverse().find(w=>
+    w.entries.some(en=>en.name==="Preacher Curl") && w.entries.some(en=>en.name==="Hammer Curl"));
+  if(pull){
+    const g = uid();
+    pull.entries.find(en=>en.name==="Preacher Curl").group = g;
+    pull.entries.find(en=>en.name==="Hammer Curl").group = g;
+  }
+
+  localStorage.setItem(KEY, JSON.stringify(DB));
+  localStorage.setItem(PLAN_KEY, JSON.stringify(DEMO_PLAN));
+  render();
+}
+
+function clearDemoData(silent){
+  DB.workouts = DB.workouts.filter(w=>!w._demo);
+  const stillUsed = new Set(DB.workouts.flatMap(w=>w.entries.map(en=>en.exId)));
+  DB.exercises = DB.exercises.filter(e=>!e._demo || stillUsed.has(e.id));
+  localStorage.setItem(KEY, JSON.stringify(DB));
+  if(!silent){
+    try{ if(JSON.parse(localStorage.getItem(PLAN_KEY))?.groups?.Back?.why === DEMO_PLAN.groups.Back.why)
+      localStorage.removeItem(PLAN_KEY); }catch(_){}
+    render();
+  }
+}
+
 /* ---------- Backup ---------- */
 $("#exportBtn").addEventListener("click",()=>{
   // strip internal _sync field from export
@@ -1779,12 +2408,23 @@ $("#wipeBtn").addEventListener("click",()=>{
   DB = { exercises:[], workouts:[] }; save(); render(); toast("All data erased");
 });
 
+$("#seedBtn").addEventListener("click",()=>{ seedDemoData(); toast("Demo data loaded"); });
+$("#unseedBtn").addEventListener("click",()=>{ clearDemoData(false); toast("Demo data cleared"); });
+
 /* ---------- Boot ---------- */
+finalizeStaleSessions();
 render();
 initAuth();
 window.addEventListener('online', ()=>{ if(currentUser) syncPending(); });
+// Skip the SW on localhost so edits land on a plain refresh; unregister any
+// stale one left over from an earlier visit.
 if("serviceWorker" in navigator && location.protocol.startsWith("http")){
-  navigator.serviceWorker.register("sw.js").catch(()=>{});
+  if(isLocalDev){
+    navigator.serviceWorker.getRegistrations()
+      .then(rs => rs.forEach(r => r.unregister())).catch(()=>{});
+  } else {
+    navigator.serviceWorker.register("sw.js").catch(()=>{});
+  }
 }
 </script>
 </body>
