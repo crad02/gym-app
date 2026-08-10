@@ -504,7 +504,8 @@
 <div class="toast" id="toast"></div>
 
 <script src="exercises.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- vendored, not CDN: a blocked or slow CDN used to abort the whole app script -->
+<script src="vendor/supabase.js"></script>
 <script>
 "use strict";
 /* ============================================================
@@ -514,7 +515,15 @@
 /* ---------- Supabase ---------- */
 const SUPABASE_URL = 'https://bqntqspsaobkeelaqjbw.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJxbnRxc3BzYW9ia2VlbGFxamJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzMTc0MjIsImV4cCI6MjA5Njg5MzQyMn0.XFaVcixhNaYuE2OW8MXVW7v9hYvOnD1PLR7bHtglgPA';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// If the library is missing or fails to construct, sb stays null and the app
+// runs as a fully working local-only tracker. It must never throw here: this is
+// top-level, so an exception would abort the entire script and leave a dead shell.
+let sb = null;
+try{
+  if(typeof supabase !== "undefined" && supabase.createClient)
+    sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+}catch(err){ sb = null; }
+if(!sb) console.warn("Lift Log: cloud sync unavailable — running local-only.");
 let currentUser = null;
 
 const MUSCLES = ["Chest","Back","Shoulders","Biceps","Triceps","Quads","Hamstrings","Glutes","Calves","Core","Forearms","Other"];
@@ -532,13 +541,26 @@ function load(){
   }catch(e){}
   return { exercises:[], workouts:[] };
 }
+// The single write path. Everything that mutates DB goes through here, so the
+// lookup index can't go stale and a failed write can't pass silently.
+function persist(){
+  invalidateLookup();
+  try{
+    localStorage.setItem(KEY, JSON.stringify(DB));
+  }catch(err){
+    console.error("Lift Log: save failed", err);
+    toast("⚠️ Couldn't save — storage full?");
+    return false;
+  }
+  return true;
+}
+
 function save(){
   touchSession();
   // mark the currently-edited workout as pending sync whenever it's modified
   const w = workoutFor(editDate, false);
-  if(w && currentUser && w._sync !== 'synced') w._sync = 'pending';
-  else if(w && currentUser) w._sync = 'pending'; // re-mark synced workouts being edited
-  localStorage.setItem(KEY, JSON.stringify(DB));
+  if(w && currentUser) w._sync = 'pending';
+  persist();
   if(currentUser) scheduleSyncPending();
 }
 
@@ -550,7 +572,7 @@ function scheduleSyncPending(){
 }
 
 async function syncPending(){
-  if(!currentUser) return;
+  if(!sb || !currentUser) return;
   // _demo rows are localhost fixtures — they must never reach the real account
   const pending = DB.workouts.filter(w => w._sync === 'pending' && w.entries.length && !w._demo);
   if(!pending.length) return;
@@ -576,7 +598,7 @@ async function syncPending(){
     }catch(_){}
   }
   if(synced){
-    localStorage.setItem(KEY, JSON.stringify(DB));
+    persist();
     render();
     const stillPending = DB.workouts.filter(w => w._sync === 'pending');
     if(!stillPending.length) toast('Workouts synced ✓');
@@ -585,11 +607,11 @@ async function syncPending(){
 
 function markNewWorkoutsPending(){
   DB.workouts.forEach(w => { if(w.entries.length && !w._sync && !w._demo) w._sync = 'pending'; });
-  localStorage.setItem(KEY, JSON.stringify(DB));
+  persist();
 }
 
 async function fetchLatestPlan(){
-  if(!currentUser) return;
+  if(!sb || !currentUser) return;
   try{
     const { data, error } = await sb.from('plans')
       .select('plan, generated_at')
@@ -610,7 +632,7 @@ async function fetchLatestPlan(){
 // history is empty until we hydrate it from the cloud. Insert-only by client_id
 // — we never overwrite a local row, so unsynced local edits are always safe.
 async function restoreFromCloud(){
-  if(!currentUser) return;
+  if(!sb || !currentUser) return;
   let rows;
   try{
     const { data, error } = await sb.from('workouts')
@@ -653,7 +675,7 @@ async function restoreFromCloud(){
   }
 
   if(added){
-    localStorage.setItem(KEY, JSON.stringify(DB));
+    persist();
     render();
     toast(`Restored ${added} workout${added>1?'s':''} from cloud ✓`);
   }
@@ -668,6 +690,7 @@ async function onSignedIn(){
 }
 
 async function initAuth(){
+  if(!sb){ currentUser = null; return; }      // local-only mode
   try{
     const { data:{ session } } = await sb.auth.getSession();
     currentUser = session?.user ?? null;
@@ -804,42 +827,58 @@ function finalizeStaleSessions(){
     if(!w.entries.length){ DB.workouts.splice(i,1); changed = true; continue; }
     if(!w.endedAt){ w.endedAt = w.lastActivityAt || w.startedAt; changed = true; }
   }
-  if(changed) localStorage.setItem(KEY, JSON.stringify(DB));
+  if(changed) persist();
 }
 
-function pbFor(exId){
-  let best=null;
-  for(const w of DB.workouts){
-    for(const en of w.entries){
-      if(en.exId!==exId) continue;
+/* ---------- Lookup index ---------- */
+// pbFor and lastSession used to walk (and sort) the whole history on every
+// call, and they're called once per rendered row — so a render was O(history ×
+// rows). One pass builds both maps instead; the cost is now O(history) per
+// render regardless of how many rows are on screen.
+let _lookup = null;
+function lookup(){
+  if(_lookup) return _lookup;
+  const pb = {}, last = {};
+  const asc = [...DB.workouts].sort((a,b)=> a.date<b.date ? -1 : a.date>b.date ? 1 : 0);
+
+  // forward pass — a strict > means a tied PB keeps the date you first hit it
+  for(const w of asc)
+    for(const en of w.entries)
       for(const s of en.sets){
         if(!isHardSet(s)) continue;
-        if(!best || s.weight>best.weight || (s.weight===best.weight && s.reps>best.reps)){
-          best={ weight:s.weight, reps:s.reps, date:w.date };
-        }
+        const b = pb[en.exId];
+        if(!b || s.weight>b.weight || (s.weight===b.weight && s.reps>b.reps))
+          pb[en.exId] = { weight:s.weight, reps:s.reps, date:w.date };
       }
-    }
-  }
-  return best;
-}
 
-function lastSession(exId){
-  const past = DB.workouts.filter(w=>w.date!==editDate).sort((a,b)=>b.date<a.date?-1:1);
-  for(const w of past){
-    const en = w.entries.find(e=>e.exId===exId);
-    if(en){
+  // backward pass — first hit per exercise is the most recent qualifying session
+  for(let i=asc.length-1; i>=0; i--){
+    const w = asc[i];
+    if(w.date === editDate) continue;          // "last time" means before today
+    for(const en of w.entries){
+      if(last[en.exId]) continue;
       const work = en.sets.filter(s=>s.type==="work");
-      if(work.length) return { date:w.date, sets:work };
+      if(work.length) last[en.exId] = { date:w.date, sets:work };
     }
   }
-  return null;
+  _lookup = { pb, last };
+  return _lookup;
 }
+// Anything that mutates DB — or changes which date counts as "today" — must
+// drop the index. render() clears it too, so a stale read isn't possible.
+function invalidateLookup(){ _lookup = null; }
+
+function pbFor(exId){ return lookup().pb[exId] || null; }
+function lastSession(exId){ return lookup().last[exId] || null; }
 
 /* ============================================================
    RENDER
    ============================================================ */
 let activeTab = "log";
 let editDate = todayKey();
+// editDate participates in the lookup index ("last time" excludes today), so it
+// must only ever change through here.
+function setEditDate(d){ editDate = d || todayKey(); invalidateLookup(); }
 let activeCoachGroup = "Back";
 
 function render(){
@@ -1106,8 +1145,8 @@ function supersetCardHTML(w, block, bi, isOpen){
     const pre = prefillFor(en, block.idxs[k]);
     return `<div class="rd-form" data-ssrow="${block.idxs[k]}">
       <span class="rd-n ellip">${esc(exs[k].name)}</span>
-      <input class="in" inputmode="decimal" data-ssw placeholder="kg" value="${pre.w ?? ''}">
-      <input class="in" inputmode="numeric" data-ssr placeholder="reps" value="${pre.r ?? ''}">
+      <input class="in" inputmode="decimal" enterkeyhint="done" data-ssw placeholder="kg" value="${pre.w ?? ''}">
+      <input class="in" inputmode="numeric" enterkeyhint="done" data-ssr placeholder="reps" value="${pre.r ?? ''}">
     </div>`;
   }).join("");
 
@@ -1147,11 +1186,11 @@ function setFormHTML(entryIdx, pre, editing){
     <div class="setform">
       <div class="field" style="margin:0">
         <label data-wlabel>${t==='drop'?'Top set (kg)':'Weight (kg)'}</label>
-        <input class="in" inputmode="decimal" data-w placeholder="0" value="${pre.w ?? ''}">
+        <input class="in" inputmode="decimal" enterkeyhint="done" data-w placeholder="0" value="${pre.w ?? ''}">
       </div>
       <div class="field" style="margin:0">
         <label>Reps</label>
-        <input class="in" inputmode="numeric" data-r placeholder="0" value="${pre.r ?? ''}">
+        <input class="in" inputmode="numeric" enterkeyhint="done" data-r placeholder="0" value="${pre.r ?? ''}">
       </div>
       <button class="btn primary" data-addset="${entryIdx}" style="height:46px">${editing?'Update':'Add'}</button>
     </div>
@@ -1478,6 +1517,13 @@ function renderMore(){
         <button class="btn sm ghost" id="signOutBtn">Sign out</button>
       </div>
       ${pendingCount ? `<button class="btn full sm" id="syncNowBtn" style="margin-top:10px">Sync now</button>` : ''}
+    </div>`;
+  } else if(!sb){
+    // library missing — logging still works, so say that rather than offer a dead button
+    authHTML = `<div class="card" style="border-color:var(--gold-dim)">
+      <div class="small" style="font-weight:700;color:var(--gold);margin-bottom:4px">Local-only mode</div>
+      <div class="tiny muted">Cloud sync couldn't load. Everything you log is saved on this device —
+        reconnect and reopen to sync.</div>
     </div>`;
   } else {
     authHTML = `<div class="card">
@@ -1839,8 +1885,8 @@ function openExDetail(exId){
     </div>
     <div class="grouphdr" style="margin-left:0">ADD A RESULT</div>
     <div class="setform" style="margin-top:0">
-      <div class="field" style="margin:0"><label>Weight (kg)</label><input class="in" inputmode="decimal" id="resW" placeholder="0"></div>
-      <div class="field" style="margin:0"><label>Reps</label><input class="in" inputmode="numeric" id="resR" placeholder="0"></div>
+      <div class="field" style="margin:0"><label>Weight (kg)</label><input class="in" inputmode="decimal" enterkeyhint="done" id="resW" placeholder="0"></div>
+      <div class="field" style="margin:0"><label>Reps</label><input class="in" inputmode="numeric" enterkeyhint="done" id="resR" placeholder="0"></div>
       <button class="btn primary" id="resAdd" data-res="${ex.id}" style="height:46px">Add</button>
     </div>
     <div class="field" style="margin-top:10px"><label>Date</label>
@@ -1930,7 +1976,7 @@ function saveExerciseEdit(exId){
       if(touched && currentUser && w._sync === 'synced') w._sync = 'pending';
     }
   }
-  localStorage.setItem(KEY, JSON.stringify(DB));
+  persist();
   if(currentUser && renamed) scheduleSyncPending();
   render();
   openExDetail(exId);
@@ -1954,7 +2000,7 @@ function mergeExercises(fromId, toId){
     if(currentUser && w._sync === 'synced') w._sync = 'pending';
   }
   DB.exercises = DB.exercises.filter(e=>e.id!==fromId);
-  localStorage.setItem(KEY, JSON.stringify(DB));
+  persist();
   if(currentUser) scheduleSyncPending();
   render();
   openExDetail(toId);
@@ -1974,7 +2020,7 @@ function switchTab(tab){
   render();
 }
 $$("nav button").forEach(b=> b.addEventListener("click",()=>{
-  if(b.dataset.tab==="log") editDate = todayKey();
+  if(b.dataset.tab==="log") setEditDate(todayKey());
   switchTab(b.dataset.tab);
 }) );
 
@@ -1986,6 +2032,7 @@ $("#coachTabs").addEventListener("click", e=>{
 
 // more tab — auth actions (event delegation)
 $("#authCard").addEventListener("click", async e=>{
+  if(!sb){ toast("Cloud sync unavailable offline"); return; }
   if(e.target.id === "signInBtn"){
     e.target.disabled = true; e.target.textContent = "Redirecting…";
     const { error } = await sb.auth.signInWithOAuth({
@@ -2011,8 +2058,8 @@ $("#authCard").addEventListener("click", async e=>{
 
 $("#addExerciseBtn").addEventListener("click", ()=>openAddExercise());
 
-$("#logDate").addEventListener("change",()=>{ editDate = $("#logDate").value || todayKey(); render(); });
-$("#logSub").addEventListener("click",e=>{ if(e.target.id==="backToday"){ editDate = todayKey(); render(); } });
+$("#logDate").addEventListener("change",()=>{ setEditDate($("#logDate").value); render(); });
+$("#logSub").addEventListener("click",e=>{ if(e.target.id==="backToday"){ setEditDate(todayKey()); render(); } });
 
 $("#addPastBtn").addEventListener("click",()=>{
   switchTab("log");
@@ -2143,6 +2190,21 @@ function formType(scope){
   if($(".warmtog", wrap).classList.contains("on")) return "warm";
   return ($("[data-segbox] [data-type].on", wrap) || {}).dataset?.type || "work";
 }
+
+// Enter submits the set — otherwise every single set costs a keyboard dismissal
+// before you can reach Add.
+$("#logBody").addEventListener("keydown", e=>{
+  if(e.key !== "Enter") return;
+  const ssForm = e.target.closest("[data-ssform]");
+  if(ssForm){ e.preventDefault(); addRound(ssForm.dataset.ssform); return; }
+  const form = e.target.closest("[data-setform]");
+  if(form){ e.preventDefault(); addSet(+form.dataset.setform); }
+});
+$("#sheet").addEventListener("keydown", e=>{
+  if(e.key !== "Enter") return;
+  const add = $("#resAdd");
+  if(add && (e.target.id === "resW" || e.target.id === "resR")){ e.preventDefault(); add.click(); }
+});
 
 function addDropRow(form){
   const rows = $("[data-droprows]", form);
@@ -2348,7 +2410,7 @@ function seedDemoData(){
     pull.entries.find(en=>en.name==="Hammer Curl").group = g;
   }
 
-  localStorage.setItem(KEY, JSON.stringify(DB));
+  persist();
   localStorage.setItem(PLAN_KEY, JSON.stringify(DEMO_PLAN));
   render();
 }
@@ -2357,7 +2419,7 @@ function clearDemoData(silent){
   DB.workouts = DB.workouts.filter(w=>!w._demo);
   const stillUsed = new Set(DB.workouts.flatMap(w=>w.entries.map(en=>en.exId)));
   DB.exercises = DB.exercises.filter(e=>!e._demo || stillUsed.has(e.id));
-  localStorage.setItem(KEY, JSON.stringify(DB));
+  persist();
   if(!silent){
     try{ if(JSON.parse(localStorage.getItem(PLAN_KEY))?.groups?.Back?.why === DEMO_PLAN.groups.Back.why)
       localStorage.removeItem(PLAN_KEY); }catch(_){}
@@ -2393,7 +2455,7 @@ $("#importFile").addEventListener("change",e=>{
       DB = obj;
       // mark all imported workouts as pending so they sync up
       if(currentUser) DB.workouts.forEach(w => { if(w.entries.length) w._sync = 'pending'; });
-      localStorage.setItem(KEY, JSON.stringify(DB));
+      persist();
       render();
       toast("Backup restored");
       if(currentUser) syncPending();
@@ -2424,6 +2486,11 @@ if("serviceWorker" in navigator && location.protocol.startsWith("http")){
       .then(rs => rs.forEach(r => r.unregister())).catch(()=>{});
   } else {
     navigator.serviceWorker.register("sw.js").catch(()=>{});
+    // the shell is served from cache first, so a new version lands on the next
+    // launch — say so rather than leaving you on an old build unknowingly
+    navigator.serviceWorker.addEventListener("message", ev=>{
+      if(ev.data && ev.data.type === "update-ready") toast("Update ready — reopen the app");
+    });
   }
 }
 </script>
