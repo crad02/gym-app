@@ -83,7 +83,8 @@
   .sess.live{border-color:var(--accent-dim);}
   .sess.live .sess-l{color:var(--accent);}
   .sess.live .sess-v,.sess.stale .sess-v{margin-left:0;}
-  .sess.live .btn,.sess.stale .btn,.sess.done button{margin-left:auto;}
+  .sess.live .btn,.sess.stale .btn,.sess.done #resumeSessionBtn{margin-left:auto;}
+  .sess.done #clearSessionBtn{margin-left:0;}
   .sess.live .sess-l::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;
         background:var(--accent);margin-right:6px;animation:sesspulse 1.6s ease-in-out infinite;}
   .sess.stale{border-color:var(--gold-dim);}
@@ -565,13 +566,20 @@ function persist(){
   return true;
 }
 
-function save(){
-  touchSession();
-  // mark the currently-edited workout as pending sync whenever it's modified
+// Write + mark for sync, with no clock side-effects. The session controls use
+// this: routing Finish through save() ran touchSession(), which read the
+// just-set endedAt as "logged again" and resumed the clock it had just stopped.
+function markDirty(){
   const w = workoutFor(editDate, false);
   if(w && currentUser) w._sync = 'pending';
   persist();
   if(currentUser) scheduleSyncPending();
+}
+
+// For actual data edits — logging, deleting, retagging. Advances the clock.
+function save(){
+  touchSession();
+  markDirty();
 }
 
 /* ---------- Supabase: auth + sync ---------- */
@@ -833,13 +841,21 @@ function fmtClock(ms){
            : `${m}:${String(s%60).padStart(2,"0")}`;
 }
 
-// Called from save() — the one choke point every mutation passes through.
+// Called from save() — the one choke point every data mutation passes through.
+const totalSets = w => w.entries.reduce((a,en)=>a+en.sets.length, 0);
+
 function touchSession(){
   if(editDate !== todayKey()) return;                 // never clock a back-filled workout
   const w = workoutFor(editDate, false);
   if(!w || !w.entries.length) return;
   const now = Date.now();
-  if(!w.startedAt) w.startedAt = now;                 // auto-start on the first set
+  if(!w.startedAt){
+    // Only a session's own first set starts a clock. Editing a workout logged
+    // earlier today — or before the clock existed — must not back-date one to
+    // whenever you happened to open it.
+    if(totalSets(w) > 1) return;
+    w.startedAt = now;
+  }
   if(w.endedAt && now - w.endedAt < STALE_MS) w.endedAt = null;   // logging again resumes
   if(!w.endedAt) w.lastActivityAt = now;
 }
@@ -848,21 +864,28 @@ function startSession(){
   const w = activeWorkout(true);
   if(w.startedAt && !w.endedAt) return;
   w.startedAt = Date.now(); w.endedAt = null; w.lastActivityAt = w.startedAt;
-  save(); render();
+  markDirty(); render();
 }
 function finishSession(){
   const w = activeWorkout(false);
   if(!w || !w.startedAt || w.endedAt) return 0;
   w.endedAt = sessionState(w)==="stale" ? (w.lastActivityAt || w.startedAt) : Date.now();
   const ms = sessionMs(w);
-  save(); render();
+  markDirty(); render();          // never save() — that would resume what we just stopped
   return ms;
 }
 function resumeSession(){
   const w = activeWorkout(false);
   if(!w || !w.startedAt) return;
   w.endedAt = null; w.lastActivityAt = Date.now();
-  save(); render();
+  markDirty(); render();
+}
+// Escape hatch for a clock that shouldn't be there — a stray auto-start, or a
+// duration made meaningless by editing hours after the session.
+function clearSession(){
+  const w = activeWorkout(false); if(!w) return;
+  delete w.startedAt; delete w.endedAt; delete w.lastActivityAt;
+  markDirty(); render();
 }
 
 // On boot: close out any clock left running on an earlier day, and bin sessions
@@ -984,7 +1007,8 @@ function renderSessionBar(w, isToday){
     bar.innerHTML = `<div class="sess done">
       <span class="sess-l">Duration</span>
       <span class="sess-v">${fmtDur(sessionMs(w))}</span>
-      ${isToday ? `<button class="link small" id="resumeSessionBtn" style="color:var(--accent)">resume</button>` : ""}
+      ${isToday ? `<button class="link small" id="resumeSessionBtn" style="color:var(--accent)">resume</button>
+                   <button class="link small" id="clearSessionBtn" style="color:var(--faint)">clear</button>` : ""}
     </div>`;
     return;
   }
@@ -2189,6 +2213,7 @@ $("#finishBtn").addEventListener("click",()=>{
 $("#sessionBar").addEventListener("click",e=>{
   if(e.target.closest("#startSessionBtn")){ startSession(); toast("Clock started ⏱"); return; }
   if(e.target.closest("#resumeSessionBtn")){ resumeSession(); toast("Clock resumed"); return; }
+  if(e.target.closest("#clearSessionBtn")){ clearSession(); toast("Clock removed"); return; }
   if(e.target.closest("#finishSessionBtn")){
     const ms = finishSession();
     toast(`Finished · ${fmtDur(ms)}`);
