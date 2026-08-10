@@ -1,5 +1,5 @@
 /* Lift Log service worker — offline cache */
-const CACHE = "liftlog-v19";
+const CACHE = "liftlog-v20";
 const SHELL = "./index.html";
 const ASSETS = [
   "./",
@@ -33,10 +33,10 @@ self.addEventListener("fetch", e => {
   // Only ever touch our own assets. Supabase REST reads are GETs too, and
   // caching those would serve stale workouts and stale coaching plans.
   if(new URL(req.url).origin !== location.origin) return;
-  e.respondWith(staleWhileRevalidate(req));
+  e.respondWith(staleWhileRevalidate(e, req));
 });
 
-async function staleWhileRevalidate(req){
+async function staleWhileRevalidate(e, req){
   const cache  = await caches.open(CACHE);
   const cached = await cache.match(req) || (req.mode === "navigate" ? await cache.match(SHELL) : null);
 
@@ -52,6 +52,11 @@ async function staleWhileRevalidate(req){
     }
     return res;
   }).catch(() => null);
+
+  // Keep the worker alive until the refresh completes. Without this the
+  // browser is free to kill it the moment the cached response is delivered,
+  // so cache.put never runs and the app never moves off the old version.
+  e.waitUntil(fresh);
 
   if(cached) return cached;                       // instant paint, refresh behind it
 
@@ -72,3 +77,10 @@ async function notifyClients(){
   const cs = await self.clients.matchAll({ type:"window" });
   for(const c of cs) c.postMessage({ type:"update-ready" });
 }
+
+// Lets the app show which cache is actually serving it — the only reliable
+// answer to "am I on the new build?"
+self.addEventListener("message", e => {
+  if(e.data && e.data.type === "version" && e.source)
+    e.source.postMessage({ type:"version", cache: CACHE });
+});

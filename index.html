@@ -477,7 +477,7 @@
       <button class="btn full sm" id="seedBtn" style="margin-bottom:8px">Load demo data</button>
       <button class="btn full sm ghost" id="unseedBtn">Clear demo data</button>
     </div>
-    <div class="center faint tiny" style="margin-top:18px">Lift Log · kg</div>
+    <div class="center faint tiny" style="margin-top:18px">Lift Log · kg <span id="buildTag"></span></div>
   </section>
 </div>
 
@@ -726,6 +726,10 @@ async function initAuth(){
 
 /* ---------- Utils ---------- */
 const isLocalDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+let _swCache = null;
+function askSWVersion(){
+  try{ navigator.serviceWorker.controller.postMessage({type:"version"}); }catch(_){}
+}
 const $ = (s,el=document)=>el.querySelector(s);
 const $$ = (s,el=document)=>[...el.querySelectorAll(s)];
 const uid = ()=> Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -765,20 +769,22 @@ function toast(msg){
 // a confirm taxes every delete to protect the rare mistake; undo does the
 // opposite. Held longer than a normal toast so there's time to react.
 let _undo = null;
-function toastUndo(msg, restore){
+function toastAction(msg, label, fn, sticky){
   const t=$("#toast");
-  _undo = restore;
-  t.innerHTML = `<span>${esc(msg)}</span><button class="toast-undo" data-undo>Undo</button>`;
+  _undo = fn;
+  t.innerHTML = `<span>${esc(msg)}</span><button class="toast-undo" data-undo>${esc(label)}</button>`;
   t.classList.add("show","has-action");
   clearTimeout(t._t);
-  t._t = setTimeout(()=>{ t.classList.remove("show","has-action"); _undo = null; }, 5200);
+  if(!sticky) t._t = setTimeout(()=>{ t.classList.remove("show","has-action"); _undo = null; }, 5200);
+}
+function toastUndo(msg, restore){
+  toastAction(msg, "Undo", ()=>{ restore(); toast("Restored"); });
 }
 $("#toast").addEventListener("click", e=>{
   if(!e.target.closest("[data-undo]") || !_undo) return;
   const fn = _undo; _undo = null;
   const t=$("#toast"); t.classList.remove("show","has-action"); clearTimeout(t._t);
   fn();
-  toast("Restored");
 });
 
 // A whole-workout snapshot is the safe unit to restore: set and entry indices
@@ -1667,6 +1673,10 @@ function renderMore(){
   $("#statEx").textContent = DB.exercises.length;
   $("#statSets").textContent = DB.workouts.reduce((a,w)=>a+w.entries.reduce((b,en)=>b+en.sets.length,0),0);
   $("#devCard").style.display = isLocalDev ? "block" : "none";
+  // the serving cache name, straight from the worker — the only reliable
+  // answer to "did the update actually land?"
+  $("#buildTag").textContent = _swCache ? `build ${_swCache.replace("liftlog-","")}` : "";
+  askSWVersion();
 }
 
 /* ============================================================
@@ -2662,11 +2672,30 @@ if("serviceWorker" in navigator && location.protocol.startsWith("http")){
     navigator.serviceWorker.getRegistrations()
       .then(rs => rs.forEach(r => r.unregister())).catch(()=>{});
   } else {
-    navigator.serviceWorker.register("sw.js").catch(()=>{});
-    // the shell is served from cache first, so a new version lands on the next
-    // launch — say so rather than leaving you on an old build unknowingly
+    navigator.serviceWorker.register("sw.js").then(reg=>{
+      // Ask for an update check on launch and whenever the app comes back to
+      // the foreground. A home-screen PWA is rarely "navigated", so without
+      // this a new worker can sit undiscovered for a long time.
+      const check = ()=>{ try{ reg.update(); }catch(_){} };
+      check();
+      document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) check(); });
+    }).catch(()=>{});
+
+    // A new worker took over: offer a one-tap reload rather than telling
+    // someone to quit and reopen twice.
+    let _reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", ()=>{
+      if(_reloading) return;
+      toastAction("New version ready", "Reload", ()=>{ _reloading = true; location.reload(); }, true);
+    });
     navigator.serviceWorker.addEventListener("message", ev=>{
-      if(ev.data && ev.data.type === "update-ready") toast("Update ready — reopen the app");
+      if(!ev.data) return;
+      if(ev.data.type === "update-ready")
+        toastAction("New version ready", "Reload", ()=>location.reload(), true);
+      if(ev.data.type === "version"){
+        _swCache = ev.data.cache;
+        if(activeTab === "more") renderMore();
+      }
     });
   }
 }
