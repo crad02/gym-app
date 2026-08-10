@@ -298,6 +298,9 @@
     opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;white-space:nowrap;
   }
   .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
+  .toast.has-action{pointer-events:auto;display:flex;align-items:center;gap:12px;padding-right:8px;}
+  .toast-undo{background:#111;color:#fff;font-weight:800;font-size:13px;
+              padding:6px 13px;border-radius:999px;flex-shrink:0;}
 
   .hr{height:1px;background:var(--border);margin:14px 0;border:none;}
   a.link{color:var(--accent);text-decoration:none;font-weight:600;}
@@ -743,8 +746,45 @@ function shortDate(key){
 }
 
 function toast(msg){
-  const t=$("#toast"); t.textContent=msg; t.classList.add("show");
+  const t=$("#toast");
+  t.textContent = msg;                      // also clears any Undo button
+  t.classList.add("show"); t.classList.remove("has-action");
+  _undo = null;
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),1700);
+}
+
+// Destructive actions in the logging flow get an Undo rather than a confirm —
+// a confirm taxes every delete to protect the rare mistake; undo does the
+// opposite. Held longer than a normal toast so there's time to react.
+let _undo = null;
+function toastUndo(msg, restore){
+  const t=$("#toast");
+  _undo = restore;
+  t.innerHTML = `<span>${esc(msg)}</span><button class="toast-undo" data-undo>Undo</button>`;
+  t.classList.add("show","has-action");
+  clearTimeout(t._t);
+  t._t = setTimeout(()=>{ t.classList.remove("show","has-action"); _undo = null; }, 5200);
+}
+$("#toast").addEventListener("click", e=>{
+  if(!e.target.closest("[data-undo]") || !_undo) return;
+  const fn = _undo; _undo = null;
+  const t=$("#toast"); t.classList.remove("show","has-action"); clearTimeout(t._t);
+  fn();
+  toast("Restored");
+});
+
+// A whole-workout snapshot is the safe unit to restore: set and entry indices
+// shift under you, but the workout id doesn't.
+function snapshotWorkout(w){
+  const pos  = DB.workouts.indexOf(w);
+  const copy = JSON.parse(JSON.stringify(w));
+  return ()=>{
+    const cur = DB.workouts.findIndex(x=>x.id===copy.id);
+    if(cur>=0) DB.workouts[cur] = copy;
+    else DB.workouts.splice(Math.min(pos<0?DB.workouts.length:pos, DB.workouts.length), 0, copy);
+    editingSet = null; editingNote = false;
+    save(); render();
+  };
 }
 
 /* ---------- Data helpers ---------- */
@@ -1120,7 +1160,9 @@ function prefillFor(en, i){
   const editSet = (editingSet && editingSet.ei===i) ? en.sets[editingSet.si] : null;
   const prevSet = en.sets.length ? en.sets[en.sets.length-1] : null;
   if(editSet) return {type:editSet.type, w:editSet.weight, r:editSet.reps, drops:editSet.drops};
-  if(prevSet) return {type:prevSet.type==='drop'?'work':prevSet.type, w:prevSet.weight, r:prevSet.reps};
+  // Never carry a set type forward: a warm-up precedes work, it doesn't repeat,
+  // and a drop set isn't the default either. Weight/reps still prefill.
+  if(prevSet) return {type:'work', w:prevSet.weight, r:prevSet.reps};
   const last = lastSession(en.exId);
   const lastTop = last ? last.sets.reduce((a,b)=> b.weight>a.weight?b:a, last.sets[0]) : null;
   return lastTop ? {type:'work', w:lastTop.weight, r:lastTop.reps} : {};
@@ -1755,6 +1797,7 @@ function addRound(group){
   const prevPBs = valid.map(r=>pbFor(w.entries[r.i].exId));
   valid.forEach(r=>w.entries[r.i].sets.push({ type:"work", weight:r.weight, reps:r.reps }));
   save(); render();
+  focusField($(`[data-ssform="${group}"] [data-ssrow] [data-ssr]`));   // straight into the next round
   const gotPB = valid.some((r,k)=>{
     const nb = pbFor(w.entries[r.i].exId), pb = prevPBs[k];
     return nb && (!pb || nb.weight>pb.weight || (nb.weight===pb.weight && nb.reps>pb.reps));
@@ -1765,9 +1808,11 @@ function addRound(group){
 // Deleting a round pulls set N from every lift in the pair, so they stay aligned.
 function delRound(group, r){
   const w = activeWorkout(false); if(!w) return;
+  const undo = snapshotWorkout(w);
   w.entries.forEach(en=>{ if(en.group===group && en.sets[r]) en.sets.splice(r,1); });
   editingSet = null;
-  save(); render(); toast("Round deleted");
+  save(); render();
+  toastUndo(`Round ${r+1} deleted`, undo);
 }
 
 function unlinkSuperset(group){
@@ -2255,14 +2300,49 @@ function formType(scope){
   return ($("[data-segbox] [data-type].on", wrap) || {}).dataset?.type || "work";
 }
 
-// Enter submits the set — otherwise every single set costs a keyboard dismissal
-// before you can reach Add.
+// Focus + select, so typing replaces the prefilled value instead of appending
+// to it. Called after re-renders too, which is why it tolerates a missing node.
+function focusField(el){
+  if(!el) return false;
+  el.focus({ preventScroll:true });
+  try{ el.select(); }catch(_){}
+  return true;
+}
+
+// Enter advances weight → reps, and only submits from the last field. Firing
+// the set from the weight box would log it against whatever reps was prefilled.
 $("#logBody").addEventListener("keydown", e=>{
   if(e.key !== "Enter") return;
-  const ssForm = e.target.closest("[data-ssform]");
-  if(ssForm){ e.preventDefault(); addRound(ssForm.dataset.ssform); return; }
-  const form = e.target.closest("[data-setform]");
-  if(form){ e.preventDefault(); addSet(+form.dataset.setform); }
+  const el = e.target;
+  if(!el.matches || !el.matches("input")) return;
+  e.preventDefault();
+
+  // superset: weight → reps → next lift's weight → submit the round
+  const ssRow = el.closest("[data-ssrow]");
+  if(ssRow){
+    if(el.matches("[data-ssw]")) return void focusField($("[data-ssr]", ssRow));
+    const next = ssRow.nextElementSibling;
+    if(next && next.matches("[data-ssrow]")) return void focusField($("[data-ssw]", next));
+    return void addRound(ssRow.closest("[data-ssform]").dataset.ssform);
+  }
+
+  const form = el.closest("[data-setform]");
+  if(!form) return;
+  const dropRow = el.closest("[data-droprow]");
+  if(dropRow && el.matches("[data-dw]")) return void focusField($("[data-dr]", dropRow));
+  if(el.matches("[data-w]")) return void focusField($("[data-r]", form));
+  addSet(+form.dataset.setform);
+});
+
+// Tapping a prefilled number should replace it, not drop a cursor mid-value.
+$("#logBody").addEventListener("focusin", e=>{
+  const el = e.target;
+  if(el.matches && el.matches("[data-w],[data-r],[data-ssw],[data-ssr],[data-dw],[data-dr]"))
+    requestAnimationFrame(()=>{ try{ el.select(); }catch(_){} });
+});
+$("#sheet").addEventListener("focusin", e=>{
+  if(e.target.id==="resW" || e.target.id==="resR")
+    requestAnimationFrame(()=>{ try{ e.target.select(); }catch(_){} });
 });
 $("#sheet").addEventListener("keydown", e=>{
   if(e.key !== "Enter") return;
@@ -2313,6 +2393,10 @@ function addSet(entryIdx){
   save();
   const newPB = pbFor(wk.entries[entryIdx].exId);
   render();
+  // render() replaced the form, so put the cursor back — otherwise the keyboard
+  // drops between every set. Reps, not weight: the load usually repeats and the
+  // reps usually don't, and both are already prefilled.
+  focusField($(`[data-setform="${entryIdx}"] [data-r]`));
   const ex = exById(wk.entries[entryIdx].exId);
   const aim = ex ? coachAimFor(ex.name) : null;
   if(isHardSet(set) && newPB && (!prevPB || newPB.weight>prevPB.weight || (newPB.weight===prevPB.weight && newPB.reps>prevPB.reps))
@@ -2334,17 +2418,21 @@ function dupSet(entryIdx,setIdx){
 }
 function delSet(entryIdx,setIdx){
   const w = activeWorkout(false); if(!w) return;
+  const undo = snapshotWorkout(w);
   w.entries[entryIdx].sets.splice(setIdx,1);
   editingSet = null;   // indices shifted
   save(); render();
+  toastUndo("Set deleted", undo);
 }
 function delEntry(entryIdx){
   const w = activeWorkout(false); if(!w) return;
-  if(w.entries[entryIdx].sets.length && !confirm("Remove this exercise from today?")) return;
+  const name = (exById(w.entries[entryIdx].exId) || w.entries[entryIdx]).name || "Exercise";
+  const undo = snapshotWorkout(w);
   w.entries.splice(entryIdx,1);
   if(!w.entries.length){ DB.workouts = DB.workouts.filter(x=>x!==w); }
   openEntry = null; editingSet = null;   // indices shifted; fall back to auto
   save(); render();
+  toastUndo(`${name} removed`, undo);
 }
 
 $("#historyBody").addEventListener("click",e=>{
