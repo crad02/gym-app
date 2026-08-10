@@ -53,7 +53,7 @@
     overscroll-behavior-y:none;
   }
   button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;font-size:inherit;}
-  input,select{font-family:inherit;font-size:16px;}
+  input,select,textarea{font-family:inherit;font-size:16px;}
 
   /* ---------- Layout ---------- */
   #app{
@@ -140,12 +140,12 @@
   /* ---------- Inputs ---------- */
   .field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
   .field label{font-size:13px;font-weight:600;color:var(--muted);}
-  input.in,select.in{
+  input.in,select.in,textarea.in{
     background:var(--surface-2);border:1px solid var(--border);
     color:var(--text);padding:12px;border-radius:11px;width:100%;
     appearance:none;-webkit-appearance:none;
   }
-  input.in:focus,select.in:focus{outline:none;border-color:var(--accent);}
+  input.in:focus,select.in:focus,textarea.in:focus{outline:none;border-color:var(--accent);}
   select.in{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' stroke='%23b6a994' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     background-repeat:no-repeat;background-position:right 12px center;padding-right:34px;}
   .datepick{background:var(--surface-2);border:1px solid var(--border);color:var(--text);padding:9px 11px;border-radius:11px;color-scheme:dark;font-weight:600;font-size:15px;}
@@ -184,6 +184,12 @@
   .seg.dropon button.on{background:#a877e0;color:#1a0f26;}
   /* warm-up demoted out of the segment control — rarely used, and it was
      eating a third of the width on the path taken every single set */
+  /* session note */
+  .note-ta{resize:vertical;min-height:76px;line-height:1.45;}
+  .note-body{white-space:pre-wrap;font-size:14px;line-height:1.5;}
+  .hist-note{white-space:pre-wrap;font-size:13px;color:var(--muted);line-height:1.5;
+             border-left:2px solid var(--border);padding-left:10px;margin-top:9px;}
+
   /* supersets */
   .ss-tag{font-size:10px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px;}
   .superset-btn{margin-top:8px;color:var(--muted);}
@@ -408,6 +414,7 @@
     <div id="sessionBar"></div>
     <div id="logBody"></div>
     <button class="btn primary full" id="addExerciseBtn">+ Add exercise</button>
+    <div id="notesCard" style="margin-top:14px"></div>
     <div style="height:14px"></div>
     <button class="btn ghost full small" id="finishBtn" style="display:none;color:var(--muted)">Finish &amp; clear today's view</button>
   </section>
@@ -586,6 +593,7 @@ async function syncPending(){
         // denormalize each exercise's muscle into the payload so it survives a
         // device move (the exercises list itself isn't synced — only workouts).
         payload: {
+          note: w.note ?? null,
           // session clock — epoch ms, null when the workout was never clocked
           startedAt: w.startedAt ?? null,
           endedAt: w.endedAt ?? null,
@@ -655,6 +663,7 @@ async function restoreFromCloud(){
     if(haveWorkout.has(r.client_id)) continue;   // never clobber local edits
     const entries = (r.payload && r.payload.entries) || [];
     DB.workouts.push({ id: r.client_id, date: r.date, entries,
+                       note: r.payload?.note ?? undefined,
                        startedAt: r.payload?.startedAt ?? null,
                        endedAt: r.payload?.endedAt ?? null,
                        lastActivityAt: r.payload?.lastActivityAt ?? null,
@@ -948,6 +957,58 @@ function renderSessionBar(w, isToday){
   if(!stale) _clockTimer = setInterval(tickClock, 1000);
 }
 
+/* ---------- Session note ---------- */
+// Optional free text on the workout. Collapsed to a single line until used, so
+// it costs nothing on the screen you're looking at mid-set.
+let editingNote = false;
+
+function renderNotesCard(w){
+  const el = $("#notesCard");
+  if(!w || !w.entries.length){ el.innerHTML = ""; editingNote = false; return; }
+  const note = w.note || "";
+
+  if(editingNote){
+    el.innerHTML = `<div class="card">
+      <div class="grouphdr" style="margin:0 0 8px 0">SESSION NOTE</div>
+      <textarea class="in note-ta" id="noteTA" rows="3" maxlength="600"
+        placeholder="How did it feel? Energy, niggles, sleep…">${esc(note)}</textarea>
+      <div class="row" style="gap:8px;margin-top:9px">
+        <button class="btn primary grow" id="noteSave">Save</button>
+        <button class="btn ghost" id="noteCancel">Cancel</button>
+      </div>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = note
+    ? `<div class="card tap" id="noteOpen">
+         <div class="row between" style="margin-bottom:6px">
+           <span class="grouphdr" style="margin:0">SESSION NOTE</span>
+           <span class="tiny faint">tap to edit</span>
+         </div>
+         <div class="note-body">${esc(note)}</div>
+       </div>`
+    : `<button class="btn ghost full sm" id="noteOpen" style="color:var(--muted)">✎ Add a note</button>`;
+}
+
+$("#notesCard").addEventListener("click", e=>{
+  if(e.target.closest("#noteOpen")){
+    editingNote = true; render();
+    const ta = $("#noteTA");
+    if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+    return;
+  }
+  if(e.target.closest("#noteCancel")){ editingNote = false; render(); return; }
+  if(e.target.closest("#noteSave")){
+    const w = activeWorkout(false); if(!w) return;
+    const v = ($("#noteTA").value || "").trim();
+    if(v) w.note = v; else delete w.note;      // empty note leaves no trace
+    editingNote = false;
+    save(); render();
+    toast(v ? "Note saved" : "Note cleared");
+  }
+});
+
 function setChipsHTML(sets){
   if(!sets.length) return `<div class="set-chips faint">no sets yet — tap to log</div>`;
   const chips = sets.map(s=>{
@@ -968,6 +1029,7 @@ function renderLog(){
   const w = activeWorkout(false);
   const body = $("#logBody");
   renderSessionBar(w, isToday);
+  renderNotesCard(w);
   // the session bar owns Finish once a clock is running; this stays for
   // back-filled workouts, which are never clocked
   $("#finishBtn").style.display = (w && w.entries.length && sessionState(w)==="none") ? "block":"none";
@@ -1242,6 +1304,7 @@ function renderHistory(){
     }).join("");
     const syncDot = w._sync ? `<span class="sync-dot ${w._sync}"></span>` : '';
     const dur = w.startedAt ? ` · ${fmtDur(sessionMs(w))}` : '';
+    const noteHTML = w.note ? `<div class="hist-note">${esc(w.note)}</div>` : '';
     return `<div class="card">
       <div class="row between" style="margin-bottom:8px">
         <span class="wk-date">${dateLabel(w.date)}</span>
@@ -1249,6 +1312,7 @@ function renderHistory(){
       </div>
       <div class="chips" style="margin-bottom:6px">${muscles.map(m=>`<span class="chip">${esc(m)}</span>`).join("")}</div>
       ${exLines}
+      ${noteHTML}
       <div style="margin-top:8px"><button class="btn sm ghost danger" data-del-workout="${w.id}">Delete workout</button></div>
     </div>`;
   }).join("");
