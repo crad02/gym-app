@@ -71,8 +71,374 @@ $("#notesCard").addEventListener("click", e=>{
   }
 });
 
+/* ============================================================
+   WEIGHT INCREMENT INFERENCE
+   ============================================================ */
+// What does this lift actually go up by? Rather than assume 2.5 kg everywhere,
+// read it off the user's own history: take each session's top work set in date
+// order and find the most common jump between consecutive sessions. Someone
+// microloading a press in 1 kg steps gets 1 kg steppers; someone adding 5 kg to
+// a squat gets 5.
+function inferWeightIncrement(exId){
+  const sessions = [];
+  for(const w of DB.workouts){
+    const en = w.entries.find(e=>e.exId===exId); if(!en) continue;
+    const work = en.sets.filter(s=>s.type==="work"); if(!work.length) continue;
+    const top = work.reduce((a,b)=>b.weight>a.weight?b:a, work[0]);
+    sessions.push({ date:w.date, weight:top.weight });
+  }
+  // Chronological, not by weight — the gap between two sorted weights isn't a
+  // progression step, it's just a gap in the distribution.
+  sessions.sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  if(sessions.length < 3) return _fallbackIncrement(exId);
+
+  const jumps = [];
+  for(let i=1;i<sessions.length;i++){
+    const d = Math.abs(sessions[i].weight - sessions[i-1].weight);
+    if(d > 0.1 && d <= 10) jumps.push(d);
+  }
+  if(!jumps.length) return _fallbackIncrement(exId);
+
+  // modal jump rounded to nearest 0.25
+  const rounded = jumps.map(j=>Math.round(j*4)/4);
+  const freq = {};
+  for(const j of rounded) freq[j] = (freq[j]||0)+1;
+  const modal = +Object.entries(freq).sort((a,b)=>b[1]-a[1])[0][0];
+  // sanity: between 0.25 and 5
+  return (modal >= 0.25 && modal <= 5) ? modal : _fallbackIncrement(exId);
+}
+
+function _fallbackIncrement(exId){
+  // Simple heuristic: look at last logged weight for this exercise.
+  // Heavy lifts (> 40 kg typically barbell) → 2.5, lighter → 1.25
+  const last = lastSession(exId);
+  if(last && last.sets.length){
+    const top = last.sets.reduce((a,b)=>b.weight>a.weight?b:a, last.sets[0]);
+    if((top.weight||0) >= 40) return 2.5;
+    return 1.25;
+  }
+  return 2.5;
+}
+
+/* ============================================================
+   PLATE CALCULATOR
+   ============================================================ */
+// Bar weight and plate stock come from DB.settings (DEFAULT_SETTINGS in core.js),
+// so they're in the backup and editable in More.
+//
+// Which lifts get plate math is guessed from the muscle group: these are the
+// ones usually loaded on a bar. It's a guess, so it's only ever a hint under
+// the weight field — a dumbbell press on Chest will show plate math that
+// doesn't apply, and nothing breaks if you ignore it.
+const BARBELL_MUSCLES = new Set(["Back","Chest","Quads","Hamstrings","Glutes","Shoulders"]);
+
+function getPlateSettings(){
+  const barKg  = +getSetting("barKg");
+  const plates = getSetting("plates");
+  return {
+    barKg:  barKg > 0 ? barKg : DEFAULT_SETTINGS.barKg,
+    plates: (Array.isArray(plates) && plates.length) ? plates : DEFAULT_SETTINGS.plates
+  };
+}
+
+// Returns null when the exercise doesn't use a barbell, or the weight minus bar
+// is not achievable with available plates.
+function plateCalc(exId, totalKg){
+  const ex = exById(exId);
+  if(!ex || !BARBELL_MUSCLES.has(ex.muscle)) return null;
+  if(!(totalKg > 0)) return null;
+
+  const { barKg, plates } = getPlateSettings();
+  const perSide = (totalKg - barKg) / 2;
+  if(perSide < 0) return null;                // lighter than bar — no plate calc
+
+  // greedy
+  let rem = perSide;
+  const used = [];
+  for(const p of [...plates].sort((a,b)=>b-a)){
+    while(rem >= p - 0.01){
+      used.push(p); rem -= p;
+    }
+  }
+  if(rem > 0.15) return null;                 // not achievable with these plates
+  if(!used.length) return null;
+
+  // collapse: [20,20,15] → "20×2 + 15"
+  const freq = {};
+  const order = [];
+  for(const p of used){
+    if(!freq[p]){ freq[p]=0; order.push(p); }
+    freq[p]++;
+  }
+  const label = order.map(p=> freq[p]>1 ? `${p}×${freq[p]}` : `${p}`).join(" + ");
+  return label;
+}
+
+/* ============================================================
+   GHOST SETS
+   ============================================================ */
+// Ghost sets are pure render state — they NEVER touch DB.
+// A ghost row is seeded from last session's work sets for an exercise.
+// Committing a ghost (tapping ✓) calls commitGhost() which calls addSet().
+
+const SWIPE_THRESHOLD = 80;          // px before a ghost is killed
+
+// Which planned rows have been dealt with, per exercise. A ghost is addressed
+// by its *slot* — its index into the seed list — and slots are never
+// renumbered, so committing or killing the first of three rows removes that
+// row and leaves the other two where they were. (An earlier version stored a
+// count, which always dropped the last row instead of the one you tapped.)
+//
+// Keyed by exId, not entry index: delEntry() splices the array and would shift
+// every index under us. addEntry() refuses duplicates, so exId is unique here.
+//
+// This is pure view state — it is never written to DB. An unlogged intention
+// must not survive as a logged fact.
+let _ghostState = {};   // { [exId]: { done:Set<slot>, extra:number } }
+
+function ghostStateFor(exId){
+  if(!_ghostState[exId]) _ghostState[exId] = { done:new Set(), extra:0 };
+  return _ghostState[exId];
+}
+function resetGhosts(exId){ delete _ghostState[exId]; }
+function resetAllGhosts(){ _ghostState = {}; }
+
+// Build the ghost seed list for an entry. Returns array of {weight,reps}.
+// Only work sets from last session seed ghosts; warm-ups do NOT.
+function ghostSeedFor(en){
+  const last = lastSession(en.exId);
+  if(last && last.sets.length){
+    // last.sets is already filtered to work sets by the lookup index
+    return last.sets.map(s=>({ weight:s.weight, reps:s.reps }));
+  }
+  // No history: try coach aim, else one empty ghost
+  const ex = exById(en.exId);
+  const aim = ex ? coachAimFor(ex.name) : null;
+  if(aim && aim.target_weight && aim.target_reps){
+    return [{ weight: aim.target_weight, reps: aim.target_reps }];
+  }
+  return [{ weight: null, reps: null }];
+}
+
+// The slots still showing for this exercise: every seed plus any extras the
+// user asked for, minus the ones already committed or swiped away.
+function ghostSlots(exId, seeds){
+  const st = ghostStateFor(exId);
+  const total = seeds.length + st.extra;
+  const out = [];
+  for(let i=0;i<total;i++) if(!st.done.has(i)) out.push(i);
+  return out;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+function ghostRowsHTML(en, ei, seeds){
+  const slots = ghostSlots(en.exId, seeds);
+  if(!slots.length) return "";
+  const inc = inferWeightIncrement(en.exId);
+  let html = "";
+  for(const gi of slots){
+    const seed = seeds[gi] || seeds[seeds.length-1] || { weight:null, reps:null };
+    const wVal = seed.weight !== null ? seed.weight : '';
+    const rVal = seed.reps  !== null ? seed.reps  : '';
+    // No "previous" column here on purpose: the ghost's numbers ARE last
+    // session's numbers, so a prev column would print them twice and crowd the
+    // row off a phone screen. Logged rows below still carry theirs.
+    const stepper = (field, val, display) => `
+      <span class="ghost-stepper">
+        <button class="step-btn" data-step="-1" data-field="${field}" data-gei="${ei}" data-ggi="${gi}" aria-label="Down">−</button>
+        <span class="step-val" data-gval="${field}">${display}</span>
+        <button class="step-btn" data-step="+1" data-field="${field}" data-gei="${ei}" data-ggi="${gi}" aria-label="Up">+</button>
+      </span>`;
+    html += `<div class="set ghost-row" data-ghost="${ei}:${gi}"
+      data-ghost-w="${wVal}" data-ghost-r="${rVal}" data-ghost-inc="${inc}">
+      <div class="ghost-reveal" aria-hidden="true">✕ Remove</div>
+      <div class="ghost-body">
+        <span class="typetag ghost-tag">PLAN</span>
+        <span class="ghost-fields">
+          ${stepper('w', wVal, wVal !== '' ? fmtKg(+wVal) : '—')}
+          <span class="ghost-x">×</span>
+          ${stepper('r', rVal, rVal !== '' ? rVal : '—')}
+        </span>
+        <button class="ghost-check" data-commit-ghost="${ei}:${gi}" aria-label="Confirm set">✓</button>
+      </div>
+    </div>`;
+  }
+  return html;
+}
+
+// Commit a ghost row as a real logged set. This is the one place a planned row
+// crosses into DB — everything before it is view state.
+function commitGhost(ei, gi){
+  const wk = activeWorkout(true);
+  if(!wk || !wk.entries[ei]) return;
+  const en = wk.entries[ei];
+
+  const seeds = ghostSeedFor(en);
+  const seed  = seeds[gi] || seeds[seeds.length-1] || { weight:null, reps:null };
+
+  // Read the steppers' current values off the row's dataset — that's what the
+  // stepper writes to, and it survives the display formatting round-trip that
+  // parsing the visible text would have to undo.
+  const ghostEl = $(`[data-ghost="${ei}:${gi}"]`);
+  let w = seed.weight, r = seed.reps;
+  if(ghostEl){
+    const dw = parseFloat(ghostEl.dataset.ghostW);
+    const dr = parseInt(ghostEl.dataset.ghostR, 10);
+    if(!isNaN(dw)) w = dw;
+    if(!isNaN(dr)) r = dr;
+  }
+
+  if(!(w >= 0) || !(r > 0)){ toast("Set weight & reps first"); return; }
+
+  const set = { type:"work", weight: w, reps: r };
+  const prevPB = pbFor(en.exId);
+  en.sets.push(set);
+  ghostStateFor(en.exId).done.add(gi);      // this plan row is now a fact
+  save();
+  const newPB = pbFor(en.exId);
+  render();
+
+  startRestTimer(en.exId);
+
+  const ex  = exById(en.exId);
+  const aim = ex ? coachAimFor(ex.name) : null;
+  if(newPB && (!prevPB || newPB.weight>prevPB.weight || (newPB.weight===prevPB.weight && newPB.reps>prevPB.reps))
+     && newPB.weight===w && newPB.reps===r){
+    toast("🏆 New PB!");
+  } else if(aim && w>=aim.target_weight && r>=aim.target_reps){
+    toast(`🎯 Aim hit — ${fmtKg(w)}×${r}`);
+  } else {
+    toast("Set logged ✓");
+  }
+}
+
+// Swiping a ghost away just marks its slot done — nothing to undo, because
+// nothing was ever written.
+function killGhost(ei, gi){
+  const wk = activeWorkout(false);
+  const en = wk && wk.entries[ei];
+  if(!en) return;
+  ghostStateFor(en.exId).done.add(gi);
+  render();
+}
+
+/* ============================================================
+   TOUCH SWIPE FOR GHOST ROWS
+   ============================================================ */
+// Touch swipe on ghost rows — distinguishable from scroll by:
+//   1. We only begin tracking if first move is more horizontal than vertical.
+//   2. A swipe_threshold must be reached before delete fires.
+//   3. The reveal shows as you drag — visual feedback.
+
+let _swipeState = null;  // { el, ei, gi, startX, startY, committed }
+
+function _onGhostTouchStart(e){
+  const row = e.target.closest("[data-ghost]"); if(!row) return;
+  const [ei, gi] = row.dataset.ghost.split(":").map(Number);
+  _swipeState = { el:row, ei, gi,
+    startX: e.touches[0].clientX,
+    startY: e.touches[0].clientY,
+    horizontal: false, committed: false, dx: 0 };
+}
+
+function _onGhostTouchMove(e){
+  if(!_swipeState || _swipeState.committed) return;
+  const dx = e.touches[0].clientX - _swipeState.startX;
+  const dy = e.touches[0].clientY - _swipeState.startY;
+
+  if(!_swipeState.horizontal){
+    // Determine intent on first meaningful move
+    if(Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+    if(Math.abs(dy) > Math.abs(dx)){
+      // Vertical scroll intent — disengage.
+      _swipeState = null; return;
+    }
+    _swipeState.horizontal = true;
+  }
+
+  e.preventDefault();       // stop scroll while we're swiping
+  _swipeState.dx = dx;
+
+  // Only allow leftward swipes to delete (feels natural: swipe to dismiss).
+  // Rightward swipe is clamped at 0 so it doesn't drift.
+  const clampedDx = Math.min(0, dx);
+  const revealPct = Math.min(1, Math.abs(clampedDx) / SWIPE_THRESHOLD);
+
+  const body = $(".ghost-body", _swipeState.el);
+  const reveal = $(".ghost-reveal", _swipeState.el);
+  if(body) body.style.transform = `translateX(${clampedDx}px)`;
+  if(reveal){ reveal.style.opacity = revealPct.toFixed(2); }
+}
+
+function _onGhostTouchEnd(){
+  if(!_swipeState || !_swipeState.horizontal){ _swipeState = null; return; }
+  const { el, ei, gi, dx } = _swipeState;
+  _swipeState = null;
+
+  const body = $(".ghost-body", el);
+  const reveal = $(".ghost-reveal", el);
+
+  if(dx < -SWIPE_THRESHOLD){
+    // Animate out, then kill.
+    if(body) body.style.transition = "transform .18s ease";
+    if(body) body.style.transform  = "translateX(-110%)";
+    if(reveal){ reveal.style.opacity = "1"; }
+    setTimeout(()=> killGhost(ei, gi), 170);
+  } else {
+    // Snap back.
+    if(body){ body.style.transition = "transform .18s ease"; body.style.transform = ""; }
+    if(reveal){ reveal.style.opacity = "0"; }
+    setTimeout(()=>{ if(body){ body.style.transition = ""; } }, 200);
+  }
+}
+
+// Wire swipe listeners once on the log body (delegation).
+(function(){
+  const body = document.getElementById("logBody");
+  if(!body) return;
+  body.addEventListener("touchstart",  _onGhostTouchStart,  { passive:true  });
+  body.addEventListener("touchmove",   _onGhostTouchMove,   { passive:false });
+  body.addEventListener("touchend",    _onGhostTouchEnd,    { passive:true  });
+  body.addEventListener("touchcancel", _onGhostTouchEnd,    { passive:true  });
+})();
+
+/* ============================================================
+   STEPPERS — live DOM update, no full render
+   ============================================================ */
+// Stepper clicks update the ghost row's displayed value in-place.
+// Weight steppers use the inferred increment; reps always step by 1.
+function _handleStepperClick(btn){
+  const field = btn.dataset.field;         // "w" or "r"
+  const gei   = +btn.dataset.gei;
+  const ggi   = +btn.dataset.ggi;
+  const delta = +btn.dataset.step;         // -1 or +1
+
+  const row = $(`[data-ghost="${gei}:${ggi}"]`); if(!row) return;
+  const inc = parseFloat(row.dataset.ghostInc) || 2.5;
+
+  const valEl = $(`[data-gval="${field}"]`, row); if(!valEl) return;
+
+  if(field === "w"){
+    let cur = parseFloat(row.dataset.ghostW);
+    if(isNaN(cur)) cur = 0;
+    cur = Math.max(0, cur + delta * inc);
+    cur = Math.round(cur * 100) / 100;     // avoid floating-point drift
+    row.dataset.ghostW = cur;
+    valEl.textContent  = fmtKg(cur);
+  } else {
+    let cur = parseInt(row.dataset.ghostR, 10);
+    if(isNaN(cur)) cur = 0;
+    cur = Math.max(1, cur + delta);
+    row.dataset.ghostR = cur;
+    valEl.textContent  = cur;
+  }
+}
+
+/* ============================================================
+   RENDERING HELPERS
+   ============================================================ */
 function setChipsHTML(sets){
-  if(!sets.length) return `<div class="set-chips faint">no sets yet — tap to log</div>`;
+  if(!sets.length) return `<div class="set-chips faint">no sets yet</div>`;
   const chips = sets.map(s=>{
     const label = `${fmtKg(s.weight)}×${s.reps}${s.type==='drop'?'+':''}`;
     return s.type==='warm' ? `<span class="warm">${label}</span>` : label;
@@ -80,6 +446,146 @@ function setChipsHTML(sets){
   return `<div class="set-chips">${chips}</div>`;
 }
 
+// Context strip: LAST shows per-set rather than only the top set.
+function ctxStripHTML(en, ex, i){
+  const pb  = pbFor(en.exId);
+  const last = lastSession(en.exId);
+  const aim  = coachAimFor(ex.name);
+  // "LAST" summary: still shows the top set in the strip; per-set data is
+  // shown inline in the set rows.
+  const lastTop = last ? last.sets.reduce((a,b)=>b.weight>a.weight?b:a, last.sets[0]) : null;
+  return `<div class="ctx-strip">
+    <div class="ctx"><div class="cl">LAST</div><div class="cv">${lastTop ? `${fmtKg(lastTop.weight)}×${lastTop.reps}` : '—'}</div></div>
+    ${aim ? `<div class="ctx aim" data-aim="${i}" data-aim-w="${aim.target_weight}" data-aim-r="${aim.target_reps}" title="Tap to use">
+      <div class="cl">AIM${aim.expected_change!=null ? (aim.expected_change>0.5?' ↑':aim.expected_change<-0.5?' ↓':' →') : ''}</div>
+      <div class="cv">${fmtKg(aim.target_weight)}×${aim.target_reps}</div></div>` : ''}
+    <div class="ctx pbx tappable" data-pbpop="${en.exId}" title="Tap for progression">
+      <div class="cl">PB ↗</div><div class="cv">${pb ? `${fmtKg(pb.weight)}×${pb.reps}` : '—'}</div></div>
+  </div>`;
+}
+
+// Plate calculator snippet — appears beneath the weight stepper for barbell lifts.
+function plateHintHTML(exId, weight){
+  if(!(weight > 0)) return '';
+  const label = plateCalc(exId, weight);
+  if(!label) return '';
+  return `<div class="plate-hint">
+    <span class="plate-icon">🏋</span>
+    <span>${label} / side</span>
+  </div>`;
+}
+
+// Per-set "previous" column: row N shows what row N was last time.
+function prevForRow(last, si){
+  if(!last || !last.sets[si]) return null;
+  return last.sets[si];
+}
+
+function setRowsHTML(en, i){
+  const last = lastSession(en.exId);
+  return en.sets.map((s,si)=>{
+    const tag   = s.type==='work'?'work':s.type==='drop'?'drop':'warm';
+    const label = s.type==='work'?'WORK':s.type==='drop'?'DROP':'WARMUP';
+    const isEditing = editingSet && editingSet.ei===i && editingSet.si===si;
+    const isPB  = (() => {
+      if(!isHardSet(s)) return false;
+      const pb = pbFor(en.exId);
+      return pb && s.weight===pb.weight && s.reps===pb.reps;
+    })();
+
+    let valHtml;
+    if(s.type==='drop'){
+      const chain = [{weight:s.weight,reps:s.reps}, ...(s.drops||[])]
+        .map(d=>`${fmtKg(d.weight)}<small>×${d.reps}</small>`).join(' <span class="faint">→</span> ');
+      valHtml = `<span class="val" style="grid-column:2/5">${chain}</span>`;
+    } else {
+      // Per-set previous column
+      const prev = prevForRow(last, si);
+      const prevHtml = prev
+        ? `<span class="set-prev">${fmtKg(prev.weight)}<small>×${prev.reps}</small></span>`
+        : `<span class="set-prev faint">—</span>`;
+      valHtml = `<span class="val">${fmtKg(s.weight)}</span>
+        <span class="val">${s.reps} <small>reps</small></span>
+        ${prevHtml}`;
+    }
+    return `<div class="set editable${isEditing?' editing':''}${isPB?' set-pb':''}" data-edit-set="${i}:${si}">
+      <span class="typetag ${tag}">${label}</span>
+      ${valHtml}
+      <button class="iconbtn" data-dup-set="${i}:${si}" aria-label="Repeat set" style="color:var(--accent);font-size:18px">⧉</button>
+      <button class="iconbtn" data-del-set="${i}:${si}" aria-label="Delete set">✕</button>
+    </div>`;
+  }).join("");
+}
+
+// prefill: the set being edited > this entry's last set > last session's top
+function prefillFor(en, i){
+  const editSet = (editingSet && editingSet.ei===i) ? en.sets[editingSet.si] : null;
+  const prevSet = en.sets.length ? en.sets[en.sets.length-1] : null;
+  if(editSet) return {type:editSet.type, w:editSet.weight, r:editSet.reps, drops:editSet.drops};
+  // Never carry a set type forward: a warm-up precedes work, it doesn't repeat,
+  // and a drop set isn't the default either. Weight/reps still prefill.
+  if(prevSet) return {type:'work', w:prevSet.weight, r:prevSet.reps};
+  const last = lastSession(en.exId);
+  const lastTop = last ? last.sets.reduce((a,b)=>b.weight>a.weight?b:a, last.sets[0]) : null;
+  return lastTop ? {type:'work', w:lastTop.weight, r:lastTop.reps} : {};
+}
+
+// Inline weight/reps steppers used in the set form (for the Add-set row).
+function stepperHTML(field, val, exId){
+  const inc = inferWeightIncrement(exId);
+  const display = (field==='w') ? (val !== '' && val !== undefined ? fmtKg(+val) : '') : (val ?? '');
+  return `<div class="form-stepper">
+    <button class="step-btn form-step" data-fstep="${field}" data-fval="${field==='w'?inc:1}" data-fdir="-1" type="button">−</button>
+    <input class="in stepper-in" inputmode="${field==='w'?'decimal':'numeric'}" enterkeyhint="done"
+      data-${field} placeholder="${field==='w'?'kg':'reps'}" value="${val ?? ''}">
+    <button class="step-btn form-step" data-fstep="${field}" data-fval="${field==='w'?inc:1}" data-fdir="+1" type="button">+</button>
+  </div>`;
+}
+
+function setFormHTML(entryIdx, pre, editing, exId){
+  pre = pre || {};
+  const t = pre.type || 'work';
+  const dropRows = (t==='drop' ? (pre.drops||[]) : []).map(d=>`
+    <div class="droprow" data-droprow>
+      <input class="in" inputmode="decimal" data-dw placeholder="drop kg" value="${d.weight ?? ''}">
+      <input class="in" inputmode="numeric" data-dr placeholder="reps" value="${d.reps ?? ''}">
+      <button class="iconbtn" data-deldrop aria-label="Remove drop">✕</button>
+    </div>`).join('');
+
+  // Plate hint for current weight value
+  const wVal = pre.w !== undefined ? pre.w : '';
+  const plateHtml = (t !== 'drop') ? plateHintHTML(exId, +wVal) : '';
+
+  return `<div data-setform="${entryIdx}">
+    <div class="typerow" data-typeseg>
+      <div class="seg${t==='warm'?' warmon':''}${t==='drop'?' dropon':''}" data-segbox>
+        <button data-type="work"${t==='work'||t==='warm'?' class="on"':''}>Working</button>
+        <button data-type="drop"${t==='drop'?' class="on"':''}>Drop</button>
+      </div>
+      <button class="warmtog${t==='warm'?' on':''}" data-type="warm">Warm-up</button>
+    </div>
+    <div class="setform">
+      <div class="field" style="margin:0">
+        <label data-wlabel>${t==='drop'?'Top set (kg)':'Weight (kg)'}</label>
+        ${stepperHTML('w', wVal, exId)}
+        ${plateHtml}
+      </div>
+      <div class="field" style="margin:0">
+        <label>Reps</label>
+        ${stepperHTML('r', pre.r !== undefined ? pre.r : '', exId)}
+      </div>
+      <button class="btn primary" data-addset="${entryIdx}" style="height:48px">${editing?'Update':'Add'}</button>
+    </div>
+    <div data-dropwrap style="display:${t==='drop'?'block':'none'}">
+      <div data-droprows>${dropRows}</div>
+      <button class="link small" data-adddrop="${entryIdx}" style="margin-top:8px">+ add drop</button>
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   RENDER LOG
+   ============================================================ */
 function renderLog(){
   const isToday = editDate===todayKey();
   $("#logTitle").textContent = isToday ? "Today" : "Past workout";
@@ -120,6 +626,14 @@ function renderLog(){
   const openBlock = blocks[openIdx];
   if(editingSet && !(openBlock && openBlock.idxs.includes(editingSet.ei))) editingSet = null;
 
+  // Ghost state only makes sense for the card you're looking at. Drop it for
+  // every other exercise so a card re-seeds from last session when reopened,
+  // and so a swipe-kill on Monday isn't still in effect on Tuesday.
+  const openExIds = new Set((openBlock ? openBlock.idxs : []).map(i => w.entries[i].exId));
+  for(const exId of Object.keys(_ghostState)){
+    if(!openExIds.has(exId)) delete _ghostState[exId];
+  }
+
   body.innerHTML = statRow + blocks.map((b,bi)=>
     b.idxs.length>1 ? supersetCardHTML(w, b, bi, bi===openIdx)
                     : entryCardHTML(w, b.idxs[0], bi, bi===openIdx)
@@ -140,56 +654,6 @@ function logBlocks(entries){
   return blocks;
 }
 
-function ctxStripHTML(en, ex, i){
-  const pb = pbFor(en.exId);
-  const last = lastSession(en.exId);
-  const lastTop = last ? last.sets.reduce((a,b)=> b.weight>a.weight?b:a, last.sets[0]) : null;
-  const aim = coachAimFor(ex.name);
-  return `<div class="ctx-strip">
-    <div class="ctx"><div class="cl">LAST</div><div class="cv">${lastTop ? `${fmtKg(lastTop.weight)}×${lastTop.reps}` : '—'}</div></div>
-    ${aim ? `<div class="ctx aim" data-aim="${i}" data-aim-w="${aim.target_weight}" data-aim-r="${aim.target_reps}" title="Tap to use">
-      <div class="cl">AIM${aim.expected_change!=null ? (aim.expected_change>0.5?' ↑':aim.expected_change<-0.5?' ↓':' →') : ''}</div>
-      <div class="cv">${fmtKg(aim.target_weight)}×${aim.target_reps}</div></div>` : ''}
-    <div class="ctx pbx tappable" data-pbpop="${en.exId}" title="Tap for progression">
-      <div class="cl">PB ↗</div><div class="cv">${pb ? `${fmtKg(pb.weight)}×${pb.reps}` : '—'}</div></div>
-  </div>`;
-}
-
-function setRowsHTML(en, i){
-  return en.sets.map((s,si)=>{
-    const tag = s.type==='work'?'work':s.type==='drop'?'drop':'warm';
-    const label = s.type==='work'?'WORK':s.type==='drop'?'DROP':'WARMUP';
-    const isEditing = editingSet && editingSet.ei===i && editingSet.si===si;
-    let valHtml;
-    if(s.type==='drop'){
-      const chain = [{weight:s.weight,reps:s.reps}, ...(s.drops||[])]
-        .map(d=>`${fmtKg(d.weight)}<small>×${d.reps}</small>`).join(' <span class="faint">→</span> ');
-      valHtml = `<span class="val" style="grid-column:2/4">${chain}</span>`;
-    } else {
-      valHtml = `<span class="val">${fmtKg(s.weight)}</span><span class="val">${s.reps} <small>reps</small></span>`;
-    }
-    return `<div class="set editable${isEditing?' editing':''}" data-edit-set="${i}:${si}">
-      <span class="typetag ${tag}">${label}</span>
-      ${valHtml}
-      <button class="iconbtn" data-dup-set="${i}:${si}" aria-label="Repeat set" style="color:var(--accent);font-size:18px">⧉</button>
-      <button class="iconbtn" data-del-set="${i}:${si}" aria-label="Delete set">✕</button>
-    </div>`;
-  }).join("");
-}
-
-// prefill: the set being edited > this entry's last set > last session's top
-function prefillFor(en, i){
-  const editSet = (editingSet && editingSet.ei===i) ? en.sets[editingSet.si] : null;
-  const prevSet = en.sets.length ? en.sets[en.sets.length-1] : null;
-  if(editSet) return {type:editSet.type, w:editSet.weight, r:editSet.reps, drops:editSet.drops};
-  // Never carry a set type forward: a warm-up precedes work, it doesn't repeat,
-  // and a drop set isn't the default either. Weight/reps still prefill.
-  if(prevSet) return {type:'work', w:prevSet.weight, r:prevSet.reps};
-  const last = lastSession(en.exId);
-  const lastTop = last ? last.sets.reduce((a,b)=> b.weight>a.weight?b:a, last.sets[0]) : null;
-  return lastTop ? {type:'work', w:lastTop.weight, r:lastTop.reps} : {};
-}
-
 function entryCardHTML(w, i, bi, isOpen){
   const en = w.entries[i];
   const ex = exById(en.exId) || {name:en.name,muscle:"Other"};
@@ -208,6 +672,8 @@ function entryCardHTML(w, i, bi, isOpen){
   }
 
   // ── expanded: lift mode ──
+  const seeds = ghostSeedFor(en);
+
   return `<div class="card ex-card open">
     <div class="ex-head" data-card-head="${bi}">
       <div class="grow" style="min-width:0">
@@ -219,17 +685,18 @@ function entryCardHTML(w, i, bi, isOpen){
     </div>
     ${ctxStripHTML(en, ex, i)}
     ${setRowsHTML(en, i)}
+    ${ghostRowsHTML(en, i, seeds)}
     ${editingSet ? `<div class="edit-bar"><span>Editing set ${editingSet.si+1}</span><button class="link small" data-cancel-edit>cancel</button></div>` : ''}
-    ${setFormHTML(i, prefillFor(en,i), !!editingSet)}
-    ${(!editingSet && en.sets.length) ? `<button class="btn ghost again-btn" data-again="${i}">↻ Same as last set</button>` : ''}
+    ${setFormHTML(i, prefillFor(en,i), !!editingSet, en.exId)}
+    <button class="btn ghost full sm add-extra-btn" data-extra-ghost="${i}" style="margin-top:6px;color:var(--faint)">+ add extra set</button>
     <button class="btn ghost full sm superset-btn" data-superset="${i}">⇄ Superset with…</button>
   </div>`;
 }
 
 // A superset logs by round: one form, both lifts, one Add.
 function supersetCardHTML(w, block, bi, isOpen){
-  const ens = block.idxs.map(i=>w.entries[i]);
-  const exs = ens.map((en,k)=>exById(en.exId) || {name:en.name,muscle:"Other"});
+  const ens  = block.idxs.map(i=>w.entries[i]);
+  const exs  = ens.map(en=>exById(en.exId) || {name:en.name,muscle:"Other"});
   const names = exs.map(e=>esc(e.name)).join(' <span class="faint">⇄</span> ');
 
   if(!isOpen){
@@ -246,12 +713,11 @@ function supersetCardHTML(w, block, bi, isOpen){
   }
 
   // rounds pair set N of each lift; a ragged tail just renders short
-  const rounds = Math.max(...ens.map(en=>en.sets.length));
+  const rounds = Math.max(0, ...ens.map(en=>en.sets.length));
   let roundsHTML = "";
   for(let r=0;r<rounds;r++){
     const lines = ens.map((en,k)=>{
       const s = en.sets[r];
-      const i = block.idxs[k];
       if(!s) return `<div class="rd-line faint"><span class="rd-n">${esc(exs[k].name)}</span><span>—</span></div>`;
       // no tap-to-edit inside a round — a per-set editor in a paired form is
       // ambiguous; delete the round and re-add instead
@@ -292,42 +758,9 @@ function supersetCardHTML(w, block, bi, isOpen){
   </div>`;
 }
 
-function setFormHTML(entryIdx, pre, editing){
-  pre = pre || {};
-  const t = pre.type || 'work';
-  const dropRows = (t==='drop' ? (pre.drops||[]) : []).map(d=>`
-    <div class="droprow" data-droprow>
-      <input class="in" inputmode="decimal" data-dw placeholder="drop kg" value="${d.weight ?? ''}">
-      <input class="in" inputmode="numeric" data-dr placeholder="reps" value="${d.reps ?? ''}">
-      <button class="iconbtn" data-deldrop aria-label="Remove drop">✕</button>
-    </div>`).join('');
-  return `<div data-setform="${entryIdx}">
-    <div class="typerow" data-typeseg>
-      <div class="seg${t==='warm'?' warmon':''}${t==='drop'?' dropon':''}" data-segbox>
-        <button data-type="work"${t==='work'||t==='warm'?' class="on"':''}>Working</button>
-        <button data-type="drop"${t==='drop'?' class="on"':''}>Drop</button>
-      </div>
-      <button class="warmtog${t==='warm'?' on':''}" data-type="warm">Warm-up</button>
-    </div>
-    <div class="setform">
-      <div class="field" style="margin:0">
-        <label data-wlabel>${t==='drop'?'Top set (kg)':'Weight (kg)'}</label>
-        <input class="in" inputmode="decimal" enterkeyhint="done" data-w placeholder="0" value="${pre.w ?? ''}">
-      </div>
-      <div class="field" style="margin:0">
-        <label>Reps</label>
-        <input class="in" inputmode="numeric" enterkeyhint="done" data-r placeholder="0" value="${pre.r ?? ''}">
-      </div>
-      <button class="btn primary" data-addset="${entryIdx}" style="height:46px">${editing?'Update':'Add'}</button>
-    </div>
-    <div data-dropwrap style="display:${t==='drop'?'block':'none'}">
-      <div data-droprows>${dropRows}</div>
-      <button class="link small" data-adddrop="${entryIdx}" style="margin-top:8px">+ add drop</button>
-    </div>
-  </div>`;
-}
-
-/* ---------- Supersets ---------- */
+/* ============================================================
+   SUPERSET HELPERS
+   ============================================================ */
 // Pairing keeps the two entries adjacent so the block reads in the order you
 // actually lift them.
 function addSupersetPartner(anchorIdx, exId){
@@ -366,6 +799,10 @@ function addRound(group){
     const nb = pbFor(w.entries[r.i].exId), pb = prevPBs[k];
     return nb && (!pb || nb.weight>pb.weight || (nb.weight===pb.weight && nb.reps>pb.reps));
   });
+  // Rest timer on round completion — use first exercise in superset.
+  if(valid.length){
+    startRestTimer(w.entries[valid[0].i].exId);
+  }
   toast(gotPB ? "🏆 New PB!" : (valid.length<rows.length ? "Round added (one lift skipped)" : "Round added"));
 }
 
@@ -401,12 +838,101 @@ function addEntry(exId){
 }
 
 /* ============================================================
+   DATA MUTATIONS
+   ============================================================ */
+function addSet(entryIdx){
+  const form = $(`[data-setform="${entryIdx}"]`);
+  const type = formType(form);
+  const wIn  = $("[data-w]",form);
+  const rIn  = $("[data-r]",form);
+  const w    = parseFloat(wIn ? wIn.value : "");
+  const r    = parseInt(rIn ? rIn.value : "", 10);
+  if(!(w>=0) || !(r>0)){ toast(type==="drop"?"Enter the top set":"Enter weight & reps"); return; }
+  let set;
+  if(type==="drop"){
+    const drops = [];
+    for(const row of $$("[data-droprow]",form)){
+      const dw = parseFloat($("[data-dw]",row).value), dr = parseInt($("[data-dr]",row).value,10);
+      if(dw>=0 && dr>0) drops.push({ weight:dw, reps:dr });
+    }
+    if(!drops.length){ toast("Add at least one drop"); return; }
+    set = { type:"drop", weight:w, reps:r, drops };
+  } else {
+    set = { type, weight:w, reps:r };
+  }
+  const wk = activeWorkout(true);
+
+  // tap-to-edit: replace in place instead of appending
+  if(editingSet && editingSet.ei===entryIdx && wk.entries[entryIdx].sets[editingSet.si]){
+    wk.entries[entryIdx].sets[editingSet.si] = set;
+    editingSet = null;
+    save(); render(); toast("Set updated");
+    return;
+  }
+
+  const prevPB = pbFor(wk.entries[entryIdx].exId);
+  wk.entries[entryIdx].sets.push(set);
+  save();
+  const newPB = pbFor(wk.entries[entryIdx].exId);
+  render();
+
+  focusField($(`[data-setform="${entryIdx}"] [data-r]`));
+
+  // Rest timer on any work set.
+  if(isHardSet(set)) startRestTimer(wk.entries[entryIdx].exId);
+
+  const ex  = exById(wk.entries[entryIdx].exId);
+  const aim = ex ? coachAimFor(ex.name) : null;
+  if(isHardSet(set) && newPB && (!prevPB || newPB.weight>prevPB.weight || (newPB.weight===prevPB.weight && newPB.reps>prevPB.reps))
+     && newPB.weight===w && newPB.reps===r){
+    toast("🏆 New PB!");
+  } else if(set.type==="work" && aim && w>=aim.target_weight && r>=aim.target_reps){
+    toast(`🎯 Aim hit — ${fmtKg(w)}×${r}`);
+  } else {
+    toast(type==="drop"?"Drop set added":"Set added");
+  }
+}
+
+function dupSet(entryIdx,setIdx){
+  const w = activeWorkout(false); if(!w) return;
+  const s = w.entries[entryIdx].sets[setIdx];
+  const copy = {...s};
+  if(s.drops) copy.drops = s.drops.map(d=>({...d}));
+  w.entries[entryIdx].sets.splice(setIdx+1, 0, copy);
+  save(); render(); toast("Set repeated");
+}
+
+function delSet(entryIdx,setIdx){
+  const w = activeWorkout(false); if(!w) return;
+  const undo = snapshotWorkout(w);
+  w.entries[entryIdx].sets.splice(setIdx,1);
+  editingSet = null;
+  save(); render();
+  toastUndo("Set deleted", undo);
+}
+
+function delEntry(entryIdx){
+  const w = activeWorkout(false); if(!w) return;
+  const name = (exById(w.entries[entryIdx].exId) || w.entries[entryIdx]).name || "Exercise";
+  const n = w.entries[entryIdx].sets.length;
+  if(!confirm(`Remove ${name}${n ? ` and its ${n} set${n===1?"":"s"}` : ""} from this workout?`)) return;
+  const undo = snapshotWorkout(w);
+  w.entries.splice(entryIdx,1);
+  if(!w.entries.length){
+    if(!w._demo && DB.deleted) DB.deleted.push(w.id);
+    DB.workouts = DB.workouts.filter(x=>x!==w);
+  }
+  openEntry = null; editingSet = null;
+  save(); render();
+  toastUndo(`${name} removed`, undo);
+}
+
+/* ============================================================
    LOG EVENTS
    ============================================================ */
 $("#addExerciseBtn").addEventListener("click", ()=>openAddExercise());
-
-$("#logDate").addEventListener("change",()=>{ setEditDate($("#logDate").value); render(); });
-$("#logSub").addEventListener("click",e=>{ if(e.target.id==="backToday"){ setEditDate(todayKey()); render(); } });
+$("#logDate").addEventListener("change",()=>{ setEditDate($("#logDate").value); resetAllGhosts(); render(); });
+$("#logSub").addEventListener("click",e=>{ if(e.target.id==="backToday"){ setEditDate(todayKey()); resetAllGhosts(); render(); } });
 
 $("#finishBtn").addEventListener("click",()=>{
   toast("Saved to history");
@@ -425,6 +951,54 @@ $("#sessionBar").addEventListener("click",e=>{
 });
 
 $("#logBody").addEventListener("click",e=>{
+  // Ghost: commit
+  const commit = e.target.closest("[data-commit-ghost]");
+  if(commit){
+    const [ei,gi] = commit.dataset.commitGhost.split(":").map(Number);
+    commitGhost(ei, gi); return;
+  }
+
+  // Stepper: ghost row step buttons
+  const stepBtn = e.target.closest(".step-btn[data-gei]");
+  if(stepBtn){ _handleStepperClick(stepBtn); return; }
+
+  // Stepper: form step buttons (for the Add-set form)
+  const fstep = e.target.closest(".form-step");
+  if(fstep){
+    const field = fstep.dataset.fstep;
+    const inc   = parseFloat(fstep.dataset.fval) || 1;
+    const dir   = +fstep.dataset.fdir;
+    const form  = fstep.closest("[data-setform]"); if(!form) return;
+    const inp   = $(`[data-${field}]`, form); if(!inp) return;
+    const cur   = field==='w' ? (parseFloat(inp.value)||0) : (parseInt(inp.value,10)||0);
+    const nxt   = field==='w' ? Math.max(0, Math.round((cur + dir*inc)*100)/100) : Math.max(1, cur + dir);
+    inp.value   = nxt;
+    // Update plate hint after weight stepper.
+    if(field==='w'){
+      const form2 = fstep.closest("[data-setform]"); if(!form2) return;
+      const ei    = +form2.dataset.setform;
+      const wk    = activeWorkout(false);
+      const exId  = wk && wk.entries[ei] ? wk.entries[ei].exId : null;
+      const plEl  = $(".plate-hint", form2);
+      const container = $(".field", form2);
+      if(exId && container){
+        const newHint = plateHintHTML(exId, nxt);
+        if(plEl) plEl.outerHTML = newHint || '';
+        else if(newHint) container.insertAdjacentHTML('beforeend', newHint);
+      }
+    }
+    return;
+  }
+
+  // Add extra ghost beyond the plan count
+  const extra = e.target.closest("[data-extra-ghost]");
+  if(extra){
+    const ei = +extra.dataset.extraGhost;
+    const wk = activeWorkout(false); if(!wk || !wk.entries[ei]) return;
+    ghostStateFor(wk.entries[ei].exId).extra++;
+    render(); return;
+  }
+
   const seg = e.target.closest("[data-type]");
   if(seg){
     const wrap = seg.closest("[data-typeseg]");
@@ -451,6 +1025,7 @@ $("#logBody").addEventListener("click",e=>{
     }
     return;
   }
+
   const adrop = e.target.closest("[data-adddrop]");
   if(adrop){ addDropRow(adrop.closest("[data-setform]")); return; }
   const ddrop = e.target.closest("[data-deldrop]");
@@ -463,7 +1038,6 @@ $("#logBody").addEventListener("click",e=>{
   if(ds){ const [ei,si]=ds.dataset.delSet.split(":").map(Number); delSet(ei,si); return; }
   const de = e.target.closest("[data-del-entry]");
   if(de){ delEntry(+de.dataset.delEntry); return; }
-  // ── log v2 interactions ──
   const cancel = e.target.closest("[data-cancel-edit]");
   if(cancel){ editingSet = null; render(); return; }
   const pbp = e.target.closest("[data-pbpop]");
@@ -471,55 +1045,47 @@ $("#logBody").addEventListener("click",e=>{
   const aim = e.target.closest("[data-aim]");
   if(aim){
     const form = $(`[data-setform="${aim.dataset.aim}"]`);
-    if(form){ $("[data-w]",form).value = aim.dataset.aimW; $("[data-r]",form).value = aim.dataset.aimR; }
-    toast("Aim loaded — hit Add");
-    return;
+    if(form){
+      const wIn = $("[data-w]",form), rIn = $("[data-r]",form);
+      if(wIn) wIn.value = aim.dataset.aimW;
+      if(rIn) rIn.value = aim.dataset.aimR;
+    }
+    toast("Aim loaded — hit Add"); return;
   }
-  // ── supersets ──
   const ss = e.target.closest("[data-superset]");
   if(ss){
-    const anchor = +ss.dataset.superset;
-    openAddExercise({ title:"Pair with…", onChoose:(exId)=>addSupersetPartner(anchor, exId) });
+    openAddExercise({ title:"Pair with…", onChoose:(exId)=>addSupersetPartner(+ss.dataset.superset, exId) });
     return;
   }
   const round = e.target.closest("[data-addround]");
   if(round){ addRound(round.dataset.addround); return; }
   const delr = e.target.closest("[data-del-round]");
-  if(delr){
-    const [g, r] = delr.dataset.delRound.split(":");
-    delRound(g, +r);
-    return;
-  }
+  if(delr){ const [g,r]=delr.dataset.delRound.split(":"); delRound(g,+r); return; }
   const unlink = e.target.closest("[data-unlink]");
   if(unlink){ unlinkSuperset(unlink.dataset.unlink); return; }
-  const again = e.target.closest("[data-again]");
-  if(again){
-    const wk = activeWorkout(false); if(!wk) return;
-    const ei = +again.dataset.again;
-    const sets = wk.entries[ei]?.sets || [];
-    if(sets.length) dupSet(ei, sets.length-1);
-    return;
-  }
   const es = e.target.closest("[data-edit-set]");
   if(es && !e.target.closest("button")){
     const [ei,si] = es.dataset.editSet.split(":").map(Number);
+    // tap the row you're already editing to cancel out of it
     editingSet = (editingSet && editingSet.ei===ei && editingSet.si===si) ? null : {ei,si};
-    render();
-    return;
+    render(); return;
   }
   const head = e.target.closest("[data-card-head]");
   if(head && !e.target.closest("button")){
-    const i = +head.dataset.cardHead;
+    const i  = +head.dataset.cardHead;
     const wk = activeWorkout(false);
     // openEntry is a *block* index (paired supersets collapse into one block),
     // so the default must be derived from the block list — not entries.length-1,
     // which would be wrong whenever a superset is present.
     const blocks = wk ? logBlocks(wk.entries) : [];
-    const openIdx = (openEntry !== null) ? openEntry : (blocks.length > 0 ? blocks.length-1 : -1);
-    openEntry = (i === openIdx) ? -1 : i;   // tap open card → collapse all
+    const curOpen = (openEntry !== null) ? openEntry : (blocks.length > 0 ? blocks.length-1 : -1);
+    // Drop ghost state for the card that's closing.
+    if(curOpen >= 0 && curOpen < blocks.length){
+      for(const ei of (blocks[curOpen].idxs || [])) resetGhosts(wk.entries[ei].exId);
+    }
+    openEntry = (i === curOpen) ? -1 : i;   // tap open card → collapse all
     editingSet = null;
-    render();
-    return;
+    render(); return;
   }
 });
 
@@ -575,95 +1141,10 @@ $("#logBody").addEventListener("focusin", e=>{
 
 function addDropRow(form){
   const rows = $("[data-droprows]", form);
-  const div = document.createElement("div");
+  const div  = document.createElement("div");
   div.className = "droprow"; div.setAttribute("data-droprow","");
   div.innerHTML = `<input class="in" inputmode="decimal" data-dw placeholder="drop kg">
     <input class="in" inputmode="numeric" data-dr placeholder="reps">
     <button class="iconbtn" data-deldrop aria-label="Remove drop">✕</button>`;
   rows.appendChild(div);
-}
-
-function addSet(entryIdx){
-  const form = $(`[data-setform="${entryIdx}"]`);
-  const type = formType(form);
-  const w = parseFloat($("[data-w]",form).value);
-  const r = parseInt($("[data-r]",form).value,10);
-  if(!(w>=0) || !(r>0)){ toast(type==="drop"?"Enter the top set":"Enter weight & reps"); return; }
-  let set;
-  if(type==="drop"){
-    const drops = [];
-    for(const row of $$("[data-droprow]",form)){
-      const dw = parseFloat($("[data-dw]",row).value), dr = parseInt($("[data-dr]",row).value,10);
-      if(dw>=0 && dr>0) drops.push({ weight:dw, reps:dr });
-    }
-    if(!drops.length){ toast("Add at least one drop"); return; }
-    set = { type:"drop", weight:w, reps:r, drops };
-  } else {
-    set = { type, weight:w, reps:r };
-  }
-  const wk = activeWorkout(true);
-
-  // tap-to-edit: replace in place instead of appending
-  if(editingSet && editingSet.ei===entryIdx && wk.entries[entryIdx].sets[editingSet.si]){
-    wk.entries[entryIdx].sets[editingSet.si] = set;
-    editingSet = null;
-    save(); render(); toast("Set updated");
-    return;
-  }
-
-  const prevPB = pbFor(wk.entries[entryIdx].exId);
-  wk.entries[entryIdx].sets.push(set);
-  save();
-  const newPB = pbFor(wk.entries[entryIdx].exId);
-  render();
-  // render() replaced the form, so put the cursor back — otherwise the keyboard
-  // drops between every set. Reps, not weight: the load usually repeats and the
-  // reps usually don't, and both are already prefilled.
-  focusField($(`[data-setform="${entryIdx}"] [data-r]`));
-  const ex = exById(wk.entries[entryIdx].exId);
-  const aim = ex ? coachAimFor(ex.name) : null;
-  if(isHardSet(set) && newPB && (!prevPB || newPB.weight>prevPB.weight || (newPB.weight===prevPB.weight && newPB.reps>prevPB.reps))
-     && newPB.weight===w && newPB.reps===r){
-    toast("🏆 New PB!");
-  } else if(set.type==="work" && aim && w>=aim.target_weight && r>=aim.target_reps){
-    toast(`🎯 Aim hit — ${fmtKg(w)}×${r}`);
-  } else {
-    toast(type==="drop"?"Drop set added":"Set added");
-  }
-}
-function dupSet(entryIdx,setIdx){
-  const w = activeWorkout(false); if(!w) return;
-  const s = w.entries[entryIdx].sets[setIdx];
-  const copy = {...s};
-  if(s.drops) copy.drops = s.drops.map(d=>({...d}));   // deep-copy a drop set's segments
-  w.entries[entryIdx].sets.splice(setIdx+1, 0, copy);
-  save(); render(); toast("Set repeated");
-}
-function delSet(entryIdx,setIdx){
-  const w = activeWorkout(false); if(!w) return;
-  const undo = snapshotWorkout(w);
-  w.entries[entryIdx].sets.splice(setIdx,1);
-  editingSet = null;   // indices shifted
-  save(); render();
-  toastUndo("Set deleted", undo);
-}
-// The one logging-flow delete that asks first: an entry takes every set with it,
-// and unlike a single set there's no cheap way to eyeball what you're losing.
-// Undo still stands behind the confirm.
-function delEntry(entryIdx){
-  const w = activeWorkout(false); if(!w) return;
-  const name = (exById(w.entries[entryIdx].exId) || w.entries[entryIdx]).name || "Exercise";
-  const n = w.entries[entryIdx].sets.length;
-  if(!confirm(`Remove ${name}${n ? ` and its ${n} set${n===1?"":"s"}` : ""} from this workout?`)) return;
-  const undo = snapshotWorkout(w);
-  w.entries.splice(entryIdx,1);
-  if(!w.entries.length){
-    // tombstone so the cloud row gets deleted on next sync (snapshotWorkout's
-    // restore closure will un-tombstone if the user hits Undo)
-    if(!w._demo) DB.deleted.push(w.id);
-    DB.workouts = DB.workouts.filter(x=>x!==w);
-  }
-  openEntry = null; editingSet = null;   // indices shifted; fall back to auto
-  save(); render();
-  toastUndo(`${name} removed`, undo);
 }
