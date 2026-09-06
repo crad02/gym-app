@@ -548,9 +548,14 @@ let DB = load();
 function load(){
   try{
     const raw = localStorage.getItem(KEY);
-    if(raw) return JSON.parse(raw);
+    if(raw){
+      const obj = JSON.parse(raw);
+      // `deleted` was added after initial release — existing stored DBs won't have it
+      if(!Array.isArray(obj.deleted)) obj.deleted = [];
+      return obj;
+    }
   }catch(e){}
-  return { exercises:[], workouts:[] };
+  return { exercises:[], workouts:[], deleted:[] };
 }
 // The single write path. Everything that mutates DB goes through here, so the
 // lookup index can't go stale and a failed write can't pass silently.
@@ -593,7 +598,9 @@ async function syncPending(){
   if(!sb || !currentUser) return;
   // _demo rows are localhost fixtures — they must never reach the real account
   const pending = DB.workouts.filter(w => w._sync === 'pending' && w.entries.length && !w._demo);
-  if(!pending.length) return;
+  // flush tombstones: each is a client_id we deleted locally and need gone from the cloud too
+  const toDelete = [...(DB.deleted || [])];
+  if(!pending.length && !toDelete.length) return;
   let synced = 0;
   for(const w of pending){
     try{
@@ -616,11 +623,24 @@ async function syncPending(){
       if(!error){ w._sync = 'synced'; synced++; }
     }catch(_){}
   }
-  if(synced){
+  // process tombstones one at a time; a failed delete stays in the list and is
+  // retried on the next sync rather than aborting the whole batch
+  let deleted = 0;
+  for(const id of toDelete){
+    try{
+      const { error } = await sb.from('workouts').delete()
+        .eq('user_id', currentUser.id).eq('client_id', id);
+      if(!error){
+        DB.deleted = DB.deleted.filter(x => x !== id);
+        deleted++;
+      }
+    }catch(_){}
+  }
+  if(synced || deleted){
     persist();
     render();
     const stillPending = DB.workouts.filter(w => w._sync === 'pending');
-    if(!stillPending.length) toast('Workouts synced ✓');
+    if(!stillPending.length && !DB.deleted.length) toast('Workouts synced ✓');
   }
 }
 
@@ -667,11 +687,13 @@ async function restoreFromCloud(){
   for(const c of LIB) muscleByName[c.n.toLowerCase()] = c.m;
 
   const haveWorkout = new Set(DB.workouts.map(w => w.id));
+  const tombstoned  = new Set(DB.deleted || []);  // don't resurrect rows we've tombstoned locally
   const haveExId    = new Set(DB.exercises.map(e => e.id));
   let added = 0;
 
   for(const r of rows){
     if(haveWorkout.has(r.client_id)) continue;   // never clobber local edits
+    if(tombstoned.has(r.client_id)) continue;    // delete is pending sync — don't bring it back
     const entries = (r.payload && r.payload.entries) || [];
     DB.workouts.push({ id: r.client_id, date: r.date, entries,
                        note: r.payload?.note ?? undefined,
@@ -796,6 +818,9 @@ function snapshotWorkout(w){
     const cur = DB.workouts.findIndex(x=>x.id===copy.id);
     if(cur>=0) DB.workouts[cur] = copy;
     else DB.workouts.splice(Math.min(pos<0?DB.workouts.length:pos, DB.workouts.length), 0, copy);
+    // if a tombstone was recorded for this workout before Undo, clear it — otherwise
+    // the workout comes back locally but then gets deleted from the cloud on next sync
+    DB.deleted = (DB.deleted || []).filter(id => id !== copy.id);
     editingSet = null; editingNote = false;
     save(); render();
   };
@@ -856,10 +881,11 @@ function touchSession(){
   if(!w || !w.entries.length) return;
   const now = Date.now();
   if(!w.startedAt){
-    // Only a session's own first set starts a clock. Editing a workout logged
-    // earlier today — or before the clock existed — must not back-date one to
-    // whenever you happened to open it.
-    if(totalSets(w) > 1) return;
+    // Only the workout's very first set starts the clock — totalSets === 1 means
+    // exactly one set has just been logged. addEntry() calls save() with zero sets
+    // on the new entry, so totalSets === 0 there and we correctly skip it.
+    // Editing a workout logged earlier today must also not back-date a clock.
+    if(totalSets(w) !== 1) return;
     w.startedAt = now;
   }
   if(w.endedAt && now - w.endedAt < STALE_MS) w.endedAt = null;   // logging again resumes
@@ -902,7 +928,11 @@ function finalizeStaleSessions(){
   for(let i=DB.workouts.length-1; i>=0; i--){
     const w = DB.workouts[i];
     if(w.date === today || !w.startedAt) continue;
-    if(!w.entries.length){ DB.workouts.splice(i,1); changed = true; continue; }
+    if(!w.entries.length){
+      // tombstone so the cloud row is cleaned up too — these were never worth keeping
+      if(!w._demo) DB.deleted.push(w.id);
+      DB.workouts.splice(i,1); changed = true; continue;
+    }
     if(!w.endedAt){ w.endedAt = w.lastActivityAt || w.startedAt; changed = true; }
   }
   if(changed) persist();
@@ -2318,7 +2348,11 @@ $("#logBody").addEventListener("click",e=>{
   if(head && !e.target.closest("button")){
     const i = +head.dataset.cardHead;
     const wk = activeWorkout(false);
-    const openIdx = (openEntry!==null) ? openEntry : (wk ? wk.entries.length-1 : -1);
+    // openEntry is a *block* index (paired supersets collapse into one block),
+    // so the default must be derived from the block list — not entries.length-1,
+    // which would be wrong whenever a superset is present.
+    const blocks = wk ? logBlocks(wk.entries) : [];
+    const openIdx = (openEntry !== null) ? openEntry : (blocks.length > 0 ? blocks.length-1 : -1);
     openEntry = (i === openIdx) ? -1 : i;   // tap open card → collapse all
     editingSet = null;
     render();
@@ -2459,12 +2493,22 @@ function delSet(entryIdx,setIdx){
   save(); render();
   toastUndo("Set deleted", undo);
 }
+// The one logging-flow delete that asks first: an entry takes every set with it,
+// and unlike a single set there's no cheap way to eyeball what you're losing.
+// Undo still stands behind the confirm.
 function delEntry(entryIdx){
   const w = activeWorkout(false); if(!w) return;
   const name = (exById(w.entries[entryIdx].exId) || w.entries[entryIdx]).name || "Exercise";
+  const n = w.entries[entryIdx].sets.length;
+  if(!confirm(`Remove ${name}${n ? ` and its ${n} set${n===1?"":"s"}` : ""} from this workout?`)) return;
   const undo = snapshotWorkout(w);
   w.entries.splice(entryIdx,1);
-  if(!w.entries.length){ DB.workouts = DB.workouts.filter(x=>x!==w); }
+  if(!w.entries.length){
+    // tombstone so the cloud row gets deleted on next sync (snapshotWorkout's
+    // restore closure will un-tombstone if the user hits Undo)
+    if(!w._demo) DB.deleted.push(w.id);
+    DB.workouts = DB.workouts.filter(x=>x!==w);
+  }
   openEntry = null; editingSet = null;   // indices shifted; fall back to auto
   save(); render();
   toastUndo(`${name} removed`, undo);
@@ -2474,7 +2518,11 @@ $("#historyBody").addEventListener("click",e=>{
   const d = e.target.closest("[data-del-workout]");
   if(d){
     if(!confirm("Delete this entire workout?")) return;
-    DB.workouts = DB.workouts.filter(w=>w.id!==d.dataset.delWorkout);
+    const id = d.dataset.delWorkout;
+    const target = DB.workouts.find(w => w.id === id);
+    // tombstone before removing so the cloud row gets cleaned up on next sync
+    if(target && !target._demo) DB.deleted.push(id);
+    DB.workouts = DB.workouts.filter(w=>w.id!==id);
     save(); render(); toast("Deleted");
   }
 });
@@ -2515,6 +2563,8 @@ $("#sheet").addEventListener("click",e=>{
     const id = del.dataset.delEx;
     DB.exercises = DB.exercises.filter(x=>x.id!==id);
     for(const w of DB.workouts){ w.entries = w.entries.filter(en=>en.exId!==id); }
+    // tombstone any workouts that are now empty so their cloud rows get removed too
+    for(const w of DB.workouts){ if(!w.entries.length && !w._demo) DB.deleted.push(w.id); }
     DB.workouts = DB.workouts.filter(w=>w.entries.length);
     save(); closeSheet(); render(); toast("Deleted");
   }
@@ -2631,22 +2681,52 @@ $("#exportBtn").addEventListener("click",()=>{
   toast("Backup downloaded");
 });
 $("#importBtn").addEventListener("click",()=>$("#importFile").click());
+// Validate an imported backup object before it touches DB. Returns a string
+// describing the first problem found, or null if the shape looks good.
+function validateBackup(obj){
+  if(!obj || typeof obj !== 'object') return "Not a valid JSON object.";
+  if(!Array.isArray(obj.exercises)) return "Missing or invalid 'exercises' array.";
+  if(!Array.isArray(obj.workouts))  return "Missing or invalid 'workouts' array.";
+  for(let wi=0; wi<obj.workouts.length; wi++){
+    const w = obj.workouts[wi];
+    if(!w || typeof w !== 'object') return `Workout #${wi+1} is not an object.`;
+    if(!w.id)   return `Workout #${wi+1} is missing an 'id'.`;
+    if(!w.date) return `Workout #${wi+1} (id: ${w.id}) is missing a 'date'.`;
+    if(!Array.isArray(w.entries)) return `Workout #${wi+1} (id: ${w.id}) has an invalid 'entries' array.`;
+    for(let ei=0; ei<w.entries.length; ei++){
+      const en = w.entries[ei];
+      if(!en || typeof en !== 'object') return `Workout ${w.id}, entry #${ei+1} is not an object.`;
+      if(!en.exId) return `Workout ${w.id}, entry #${ei+1} is missing 'exId'.`;
+      if(!Array.isArray(en.sets)) return `Workout ${w.id}, entry #${ei+1} has an invalid 'sets' array.`;
+      for(let si=0; si<en.sets.length; si++){
+        const s = en.sets[si];
+        if(!s || typeof s !== 'object') return `Workout ${w.id}, entry ${en.exId}, set #${si+1} is not an object.`;
+        if(typeof s.weight !== 'number') return `Workout ${w.id}, entry ${en.exId}, set #${si+1}: 'weight' must be a number.`;
+        if(typeof s.reps   !== 'number') return `Workout ${w.id}, entry ${en.exId}, set #${si+1}: 'reps' must be a number.`;
+      }
+    }
+  }
+  return null;
+}
+
 $("#importFile").addEventListener("change",e=>{
   const file = e.target.files[0]; if(!file) return;
   const reader = new FileReader();
   reader.onload = ()=>{
-    try{
-      const obj = JSON.parse(reader.result);
-      if(!obj.exercises || !obj.workouts) throw 0;
-      if(!confirm("Replace ALL current data with this backup?")) return;
-      DB = obj;
-      // mark all imported workouts as pending so they sync up
-      if(currentUser) DB.workouts.forEach(w => { if(w.entries.length) w._sync = 'pending'; });
-      persist();
-      render();
-      toast("Backup restored");
-      if(currentUser) syncPending();
-    }catch(err){ alert("Invalid backup file."); }
+    let obj;
+    try{ obj = JSON.parse(reader.result); }
+    catch(_){ alert("Invalid backup file — could not parse JSON."); e.target.value=""; return; }
+    const problem = validateBackup(obj);
+    if(problem){ alert(`Invalid backup file — ${problem}`); e.target.value=""; return; }
+    if(!confirm("Replace ALL current data with this backup?")) { e.target.value=""; return; }
+    if(!Array.isArray(obj.deleted)) obj.deleted = [];
+    DB = obj;
+    // mark all imported workouts as pending so they sync up
+    if(currentUser) DB.workouts.forEach(w => { if(w.entries.length) w._sync = 'pending'; });
+    persist();
+    render();
+    toast("Backup restored");
+    if(currentUser) syncPending();
   };
   reader.readAsText(file);
   e.target.value="";
@@ -2654,7 +2734,11 @@ $("#importFile").addEventListener("change",e=>{
 $("#wipeBtn").addEventListener("click",()=>{
   if(!confirm("Erase ALL data permanently? Export a backup first if unsure.")) return;
   if(!confirm("Really erase everything?")) return;
-  DB = { exercises:[], workouts:[] }; save(); render(); toast("All data erased");
+  // tombstone all cloud-synced workouts before wiping — the list survives the
+  // reset so syncPending() can flush the deletes on the next sync pass
+  const tombstones = DB.workouts.filter(w => !w._demo).map(w => w.id);
+  DB = { exercises:[], workouts:[], deleted: tombstones };
+  save(); render(); toast("All data erased");
 });
 
 $("#seedBtn").addEventListener("click",()=>{ seedDemoData(); toast("Demo data loaded"); });
