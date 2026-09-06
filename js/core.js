@@ -804,7 +804,8 @@ function lastSession(exId){ return lookup().last[exId] || null; }
 /* ============================================================
    RENDER
    ============================================================ */
-let activeTab = "log";
+// Home is the landing tab — index.html marks #screen-home active to match.
+let activeTab = "home";
 let editDate = todayKey();
 // editDate participates in the lookup index ("last time" excludes today), so it
 // must only ever change through here.
@@ -812,7 +813,8 @@ function setEditDate(d){ editDate = d || todayKey(); invalidateLookup(); }
 let activeCoachGroup = "Back";
 
 function render(){
-  if(activeTab==="log") renderLog();
+  if(activeTab==="home") renderHome();
+  else if(activeTab==="log") renderLog();
   else if(activeTab==="history") renderHistory();
   else if(activeTab==="ex") renderEx();
   else if(activeTab==="coach") renderCoach();

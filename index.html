@@ -22,8 +22,17 @@
 <body>
 
 <div id="app">
+  <!-- ============ HOME ============ -->
+  <section id="screen-home" class="screen active">
+    <div class="top">
+      <h1 id="homeTitle">Welcome</h1>
+      <span class="sub" id="homeDate"></span>
+    </div>
+    <div id="homeBody"></div>
+  </section>
+
   <!-- ============ LOG / TODAY ============ -->
-  <section id="screen-log" class="screen active">
+  <section id="screen-log" class="screen">
     <div class="top">
       <h1 id="logTitle">Today</h1>
       <input type="date" id="logDate" class="datepick">
@@ -99,7 +108,11 @@
 
 <!-- ============ NAV ============ -->
 <nav>
-  <button data-tab="log" class="on">
+  <button data-tab="home" class="on">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    Home
+  </button>
+  <button data-tab="log">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5l11 11M3 7l4-4M17 21l4-4M5 9L9 5M15 19l4-4M4 8l-1 1M21 16l-1 1"/></svg>
     Log
   </button>
@@ -144,6 +157,7 @@
 <script src="js/library.js?v=20"></script>
 <script src="js/coach.js?v=20"></script>
 <script src="js/more.js?v=20"></script>
+<script src="js/home.js?v=20"></script>
 <script src="js/boot.js?v=20"></script>
 </body>
 </html>

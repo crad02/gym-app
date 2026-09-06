@@ -643,3 +643,31 @@
     display:block;
   }
   .set-row.stack .in{width:100%;margin-top:7px;font-size:14px;font-weight:600;}
+
+  /* ================================================================
+     HOME SCREEN — landing tab: today status, routines, templates
+     ================================================================ */
+  /* warmth card: streak + this-week, two centered stats side by side */
+  .home-stat{padding:0 18px;text-align:center;}
+  .home-stat .n{font-size:20px;font-weight:800;letter-spacing:-.4px;line-height:1;}
+  .home-stat .l{font-size:10px;color:var(--muted);font-weight:600;margin-top:4px;
+    text-transform:uppercase;letter-spacing:.3px;}
+  .home-divider{width:1px;align-self:stretch;background:var(--border);}
+
+  /* routine editor sheet — one exercise per row: name + remove on top,
+     target sets/reps + reorder arrows below (stacked, not crammed into
+     one row, so it stays legible down to a 320px-wide phone) */
+  .rt-ex-row{
+    background:var(--surface-2);border:1px solid var(--border);
+    border-radius:11px;padding:10px 12px;margin-bottom:8px;
+  }
+  input.rt-num{width:56px;flex-shrink:0;padding:8px 4px;text-align:center;}
+  .rt-move{display:flex;gap:2px;margin-left:auto;}
+  .rt-ex-row .step-btn:active{background:var(--border);}
+  .step-btn:disabled{opacity:.3;}
+
+  /* six-button nav: keep labels from wrapping/clipping on a 320px phone */
+  @media (max-width:340px){
+    nav button{font-size:9px;padding:4px 2px;}
+    nav svg{width:20px;height:20px;}
+  }
