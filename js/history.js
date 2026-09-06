@@ -1,5 +1,21 @@
 "use strict";
 /* ---------- HISTORY ---------- */
+// Where a session came from, or null. w.routineId is stamped by startRoutine()
+// (js/core.js) — the routine can be gone by now (deleted, or the workout
+// predates routines entirely), so routineById() returning nothing here is a
+// normal case to fall through, not a bug to surface as "undefined". Coach
+// seeding (js/coach.js) never creates a routine — its plan is regenerated
+// weekly and would go stale as one — so it stamps w.coachGroup instead; that's
+// the fallback rather than something checked ahead of routineId, since the two
+// never both apply to the same seeding action.
+function sessionSourceLabel(w){
+  if(w.routineId){
+    const r = routineById(w.routineId);
+    if(r) return r.name;
+  }
+  return w.coachGroup ? `Coach · ${w.coachGroup}` : null;
+}
+
 function renderHistory(){
   const sum = $("#weekSummary");
   const body = $("#historyBody");
@@ -41,11 +57,14 @@ function renderHistory(){
     const syncDot = w._sync ? `<span class="sync-dot ${w._sync}"></span>` : '';
     const dur = w.startedAt ? ` · ${fmtDur(sessionMs(w))}` : '';
     const noteHTML = w.note ? `<div class="hist-note">${esc(w.note)}</div>` : '';
+    const srcLabel = sessionSourceLabel(w);
+    const srcHTML = srcLabel ? `<div class="tiny faint" style="margin:-4px 0 8px">from ${esc(srcLabel)}</div>` : '';
     return `<div class="card">
       <div class="row between" style="margin-bottom:8px">
         <span class="wk-date">${dateLabel(w.date)}</span>
         <span class="row" style="gap:8px">${syncDot}<span class="faint small">${w.entries.length} exercises · ${nSets} sets${dur}</span></span>
       </div>
+      ${srcHTML}
       <div class="chips" style="margin-bottom:6px">${muscles.map(m=>`<span class="chip">${esc(m)}</span>`).join("")}</div>
       ${exLines}
       ${noteHTML}

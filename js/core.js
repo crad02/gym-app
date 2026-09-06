@@ -269,6 +269,11 @@ async function syncPending(){
           lastActivityAt: w.lastActivityAt ?? null,
           // updatedAt lets the merge in restoreFromCloud() pick the fresher side
           updatedAt: w.updatedAt ?? null,
+          // where the session came from — a saved routine, or a Coach group.
+          // History captions from these, so without them the caption would
+          // quietly disappear on a new phone.
+          routineId: w.routineId ?? null,
+          coachGroup: w.coachGroup ?? null,
           entries: w.entries.map(en => ({
             ...en, muscle: (exById(en.exId) || {}).muscle || 'Other'
           })) }
@@ -373,6 +378,8 @@ function mergeWorkout(local, remote){
       startedAt:      rp.startedAt ?? local.startedAt,
       endedAt:        rp.endedAt ?? local.endedAt,
       lastActivityAt: rp.lastActivityAt ?? local.lastActivityAt,
+      routineId:      rp.routineId ?? local.routineId,
+      coachGroup:     rp.coachGroup ?? local.coachGroup,
       updatedAt:      remoteUpdatedAt,
       entries,
       // Only clean if the remote already holds everything we do. If we kept
@@ -410,6 +417,8 @@ function buildFromRemote(r){
     endedAt:        p.endedAt ?? null,
     lastActivityAt: p.lastActivityAt ?? null,
     updatedAt:      p.updatedAt ?? null,
+    routineId:      p.routineId ?? undefined,
+    coachGroup:     p.coachGroup ?? undefined,
     entries:        p.entries || [],
     _sync:          'synced',
   };

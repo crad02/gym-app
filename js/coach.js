@@ -131,6 +131,57 @@ function trendHTML(delta){
   return `<span class="trend ${cls}" title="expected 1RM change">${sym}</span>`;
 }
 
+// Turn "here's the plan" into "here's today's session" — the whole reason
+// Coach is a screen you act from rather than a static report. Mirrors
+// startRoutine()'s contract (js/core.js) on purpose: an exercise already in
+// today's workout is left exactly as it is, so this is safe to tap again, or
+// on top of a session you're already mid-way through logging.
+//
+// No sets are created here — the ghost-set contract in js/log.js is that an
+// unlogged intention must never become a logged fact. ghostSeedFor() already
+// calls coachAimFor(ex.name) *before* it falls back to a routine's target, and
+// that matches on the very name ensureExercise() resolves to below — so a
+// freshly-seeded exercise shows the coach's aim with no further wiring here.
+//
+// Deliberately NOT saved as a routine via saveRoutine(), even though it's
+// available: the lab regenerates this plan every week, so freezing today's
+// focus list into a routine would start going stale the moment priorities
+// shift. Routines are for a session you want to repeat unchanged; Coach's
+// entire value is staying current. w.coachGroup — not w.routineId, which
+// would wrongly imply a real saved routine exists — is what History reads to
+// caption the session (see sessionSourceLabel() in history.js).
+function startCoachGroup(groupName){
+  let plan = null;
+  try{ plan = JSON.parse(localStorage.getItem(PLAN_KEY)); }catch(_){}
+  const focus = plan?.groups?.[groupName]?.focus || [];
+  if(!focus.length) return 0;
+
+  setEditDate(todayKey());
+  const w = workoutFor(todayKey(), true);
+  const already = new Set(w.entries.map(en => en.exId));
+  // Only matters the first time this exercise is ever seen: the lab's group is
+  // coarser than the app's own muscle list (Chest also covers Shoulders here),
+  // so this is a starting point to retag from, not a claim of precision.
+  const fallbackMuscle = (GROUP_MUSCLES[groupName] || ["Other"])[0];
+
+  let added = 0;
+  for(const f of focus){
+    const name = f.app_exercise || f.exercise;
+    if(!name) continue;
+    const ex = ensureExercise(name, fallbackMuscle);
+    if(already.has(ex.id)) continue;
+    w.entries.push({ exId: ex.id, name: ex.name, sets: [] });
+    already.add(ex.id);
+    added++;
+  }
+  // First group wins. Seeding a second group on top of a session that began as
+  // Legs doesn't make it an "Other" session — History is captioning where the
+  // workout came from, not the last button pressed.
+  if(added && !w.coachGroup) w.coachGroup = groupName;
+  markDirty();
+  return added;
+}
+
 function renderCoach(){
   // tabs
   $("#coachTabs").innerHTML = COACH_GROUPS.map(g =>
@@ -181,7 +232,8 @@ function renderCoach(){
 
   const pClass = `priority-${(group.priority||'medium').toLowerCase()}`;
   const pLabel = (group.priority||'medium').toUpperCase();
-  const focusRows = (group.focus||[]).map(f => {
+  const focusList = group.focus || [];
+  const focusRows = focusList.map(f => {
     const target = [
       f.target_weight ? f.target_weight+'kg' : '',
       f.target_reps   ? f.target_reps+' reps' : ''
@@ -206,6 +258,7 @@ function renderCoach(){
     ${labChipsHTML(group)}
     ${focusRows || '<div class="faint small">No specific exercises prescribed.</div>'}
     ${group.why ? `<div class="small muted" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">📌 ${esc(group.why)}</div>` : ''}
+    ${focusList.length ? `<button class="btn primary full" data-start-group="${esc(activeCoachGroup)}" style="margin-top:14px">Start ${esc(activeCoachGroup)} session →</button>` : ''}
   </div>
   ${plan.generated_from?.valid_week ? `<div class="tiny faint center" style="margin-top:4px">Plan for week ${esc(plan.generated_from.valid_week)}</div>` : ''}`;
 }
@@ -215,4 +268,16 @@ function renderCoach(){
 $("#coachTabs").addEventListener("click", e=>{
   const g = e.target.closest("[data-group]");
   if(g){ activeCoachGroup = g.dataset.group; renderCoach(); }
+});
+
+// "Start <group> session" — seed today's workout with this group's focus
+// exercises, then land in Log, which is where you actually go lift. Always
+// switches tabs even when nothing new was added (every focus exercise was
+// already in today's workout) — the point is getting to Log, not the count.
+$("#coachBody").addEventListener("click", e=>{
+  const btn = e.target.closest("[data-start-group]");
+  if(!btn) return;
+  const added = startCoachGroup(btn.dataset.startGroup);
+  toast(added ? `Added ${added} exercise${added===1?'':'s'} to today's session` : "Already in today's session");
+  switchTab("log");
 });

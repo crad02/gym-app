@@ -68,7 +68,11 @@ So keep `main` deployable and iterate on a branch.
    ```
    Open <http://localhost:8000>. Edit → refresh. The service worker is
    deliberately not registered on localhost (see `js/boot.js`), so there is no
-   cache to fight.
+   *service worker* cache to fight — but the browser's ordinary HTTP cache can
+   still serve a stale `js/foo.js?v=20` after you've edited the file, because
+   the URL didn't change. If a change doesn't seem to take, check the loaded
+   source (`renderCoach.toString()`) before debugging the code. Serving on a
+   fresh port is the quickest clean slate: a new origin has an empty cache.
 3. When a batch is reviewed and good, merge to `main` and push once.
 
 ### Release checklist (merging to `main`)
