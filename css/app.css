@@ -383,3 +383,52 @@
   /* coach picks in the exercise sheet */
   .coach-pick-tag{font-size:10px;font-weight:700;color:var(--gold);
     background:var(--gold-dim);padding:3px 8px;border-radius:999px;white-space:nowrap;}
+
+  /* ================================================================
+     More tab additions — bodyweight tracking + settings card
+     ================================================================ */
+
+  /* ---------- Bodyweight log row ---------- */
+  .bw-row{
+    padding:7px 0;
+    border-bottom:1px solid var(--border);
+  }
+  .bw-row:last-child{border-bottom:none;}
+  /* the weight value + delete button sit inline */
+  .bw-val{
+    display:flex;align-items:center;gap:6px;
+    font-weight:700;font-size:15px;
+  }
+  .bw-del{
+    /* inherit .iconbtn sizing; override colour to ghost-danger */
+    padding:4px 6px;border-radius:7px;
+    font-size:12px;color:var(--faint);
+    line-height:1;
+  }
+  .bw-del:active{color:var(--danger);background:transparent;}
+
+  /* ---------- Bodyweight trend badge ---------- */
+  .bw-trend{
+    font-size:12px;font-weight:700;
+    padding:3px 9px;border-radius:999px;
+    background:var(--surface-2);border:1px solid var(--border);
+    white-space:nowrap;
+  }
+  .bw-trend-down{color:var(--good);}    /* losing weight → good (green) */
+  .bw-trend-up  {color:var(--gold);}    /* gaining → gold (context-neutral) */
+  .bw-trend-flat{color:var(--faint);}   /* stable */
+
+  /* ---------- Settings rows ---------- */
+  .set-row{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:12px;padding:10px 0;
+  }
+  .set-ctl{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+  .setting-in{
+    width:76px;text-align:right;
+    padding:7px 10px;font-size:14px;font-weight:700;
+  }
+  .set-row.stack{
+    display:block;
+  }
+  .set-row.stack .in{width:100%;margin-top:7px;font-size:14px;font-weight:600;}

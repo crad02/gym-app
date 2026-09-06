@@ -44,6 +44,106 @@ function renderMore(){
   // answer to "did the update actually land?"
   $("#buildTag").textContent = _swCache ? `build ${_swCache.replace("liftlog-","")}` : "";
   askSWVersion();
+
+  renderBodyweightCard();
+  renderSettingsCard();
+}
+
+/* ---------- Bodyweight card ---------- */
+// Reads DB.bodyweights (sorted newest-first) and renders a mini log + entry form.
+// Only the last 5 readings are shown — the full list lives in export/import.
+function renderBodyweightCard(){
+  const card = $("#bwCard");
+  if(!card) return;
+  const sorted = [...DB.bodyweights].sort((a,b) => b.ts - a.ts);
+  const recent = sorted.slice(0, 5);
+
+  // compute a simple trend: difference between the latest and the reading 7+
+  // days before it, expressed as a signed string ("−0.5 kg this week")
+  let trendHTML = "";
+  if(sorted.length >= 2){
+    const newest = sorted[0];
+    const weekAgo = Date.now() - 7 * 86400000;
+    // find the most recent reading that is at least 7 days old
+    const baseline = sorted.find(r => r.ts <= weekAgo);
+    if(baseline){
+      const delta = newest.kg - baseline.kg;
+      const sign  = delta > 0 ? "+" : "";
+      const cls   = delta < -0.1 ? "bw-trend-down" : delta > 0.1 ? "bw-trend-up" : "bw-trend-flat";
+      trendHTML = `<span class="bw-trend ${cls}">${sign}${delta.toFixed(1)} kg / 7 d</span>`;
+    }
+  }
+
+  const rows = recent.map(r => {
+    const d = new Date(r.ts);
+    const label = dateLabel(
+      d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")
+    );
+    return `<div class="row between bw-row" data-bw-id="${esc(r.id)}">
+      <span class="small muted">${esc(label)}</span>
+      <span class="bw-val">${r.kg % 1 === 0 ? r.kg : r.kg.toFixed(1)} kg
+        <button class="iconbtn bw-del" data-bw-del="${esc(r.id)}" title="Delete">✕</button>
+      </span>
+    </div>`;
+  }).join("");
+
+  card.innerHTML = `
+    <div class="row between" style="margin-bottom:10px">
+      <span class="small" style="font-weight:700">Bodyweight</span>
+      ${trendHTML}
+    </div>
+    ${rows ? `<div style="margin-bottom:12px">${rows}</div>` : ""}
+    <div class="row" style="gap:8px">
+      <input class="in bw-in" id="bwInput" type="number" step="0.1" min="20" max="300"
+             placeholder="kg" inputmode="decimal" style="flex:1">
+      <button class="btn primary sm" id="bwAddBtn">Log</button>
+    </div>`;
+}
+
+/* ---------- Settings card ---------- */
+// Rows are declared, not hand-written, so adding a setting is one line here
+// plus one line in DEFAULT_SETTINGS (core.js). Everything writes through
+// setSetting(), which persists on the same path as the rest of DB.
+const SETTING_ROWS = [
+  { key:"restDefaultSec",  label:"Rest — isolation", kind:"num", min:0, max:600, step:15, suffix:"sec" },
+  { key:"restCompoundSec", label:"Rest — compound",  kind:"num", min:0, max:600, step:15, suffix:"sec" },
+  { key:"barKg",           label:"Barbell weight",   kind:"num", min:1, max:60,  step:0.5, suffix:"kg" },
+  { key:"plates",          label:"Plates per side",  kind:"list", suffix:"kg" },
+];
+
+function renderSettingsCard(){
+  const card = $("#settingsCard");
+  if(!card) return;
+
+  const rows = SETTING_ROWS.map(r=>{
+    const val = getSetting(r.key);
+    // A plate list is far too long to sit beside its label on a phone, so it
+    // gets the full width of the card on its own line.
+    if(r.kind === "list"){
+      return `<div class="set-row stack">
+        <span class="small" style="font-weight:600">${esc(r.label)} <span class="tiny muted">(${esc(r.suffix)})</span></span>
+        <input class="in" type="text" data-setting-key="${esc(r.key)}"
+               inputmode="decimal" value="${esc((val||[]).join(", "))}">
+      </div>`;
+    }
+    return `<div class="set-row">
+      <span class="small" style="font-weight:600">${esc(r.label)}</span>
+      <span class="set-ctl">
+        <input class="in setting-in" type="number" data-setting-key="${esc(r.key)}"
+               min="${r.min}" max="${r.max}" step="${r.step}" value="${esc(String(val))}"
+               inputmode="decimal">
+        ${r.suffix ? `<span class="tiny muted">${esc(r.suffix)}</span>` : ""}
+      </span>
+    </div>`;
+  }).join(`<hr class="hr" style="margin:0">`);
+
+  card.innerHTML = `
+    <div class="small" style="font-weight:700;margin-bottom:2px">Settings</div>
+    <div class="tiny muted" style="margin-bottom:6px">
+      Rest starts automatically after each set — 0 turns it off. Plates are what
+      you have available on one side of the bar.
+    </div>
+    ${rows}`;
 }
 
 /* ---------- MORE EVENTS ---------- */
@@ -71,6 +171,57 @@ $("#authCard").addEventListener("click", async e=>{
     renderMore();
     return;
   }
+});
+
+/* ---------- Bodyweight events (event delegation on bwCard) ---------- */
+$("#bwCard").addEventListener("click", e=>{
+  // Log button
+  if(e.target.id === "bwAddBtn"){
+    const inp = $("#bwInput");
+    const kg = parseFloat(inp.value);
+    if(!kg || kg < 20 || kg > 300){ toast("Enter a valid weight (20–300 kg)"); return; }
+    const entry = { id: uid(), date: todayKey(), kg: Math.round(kg * 10) / 10, ts: Date.now() };
+    DB.bodyweights.push(entry);
+    persist();
+    inp.value = "";
+    renderBodyweightCard();
+    toast("Bodyweight logged");
+    return;
+  }
+  // Delete button
+  const delBtn = e.target.closest("[data-bw-del]");
+  if(delBtn){
+    const id = delBtn.dataset.bwDel;
+    DB.bodyweights = DB.bodyweights.filter(r => r.id !== id);
+    persist();
+    renderBodyweightCard();
+    return;
+  }
+});
+
+/* ---------- Settings events (event delegation on settingsCard) ---------- */
+// Each <input data-setting-key> updates its key on change. This covers any row
+// added later without needing a new event listener.
+$("#settingsCard").addEventListener("change", e=>{
+  const inp = e.target.closest("[data-setting-key]");
+  if(!inp) return;
+  const key = inp.dataset.settingKey;
+  const raw = (inp.value || "").trim();
+  const def = DEFAULT_SETTINGS[key];
+
+  let value;
+  if(Array.isArray(def)){
+    // "25, 20, 15" → [25,20,15], heaviest first so the greedy plate maths works
+    value = raw.split(/[,\s]+/).map(parseFloat).filter(n=>n>0).sort((a,b)=>b-a);
+    if(!value.length){ toast("Enter at least one plate"); renderSettingsCard(); return; }
+  } else {
+    value = parseFloat(raw);
+    if(isNaN(value)){ renderSettingsCard(); return; }   // put the old value back
+    value = Math.max(0, value);
+  }
+  setSetting(key, value);
+  renderSettingsCard();     // re-render so a normalised value is what you see
+  toast("Saved");
 });
 
 /* ---------- Dev seed (localhost only) ---------- */
@@ -169,10 +320,13 @@ function clearDemoData(silent){
 
 /* ---------- Backup ---------- */
 $("#exportBtn").addEventListener("click",()=>{
-  // strip internal _sync field from export
+  // strip internal _sync field from workout export; include bodyweights and settings
   const exportDB = {
-    exercises: DB.exercises,
-    workouts: DB.workouts.map(({ _sync, ...rest }) => rest)
+    exercises:    DB.exercises,
+    workouts:     DB.workouts.map(({ _sync, ...rest }) => rest),
+    bodyweights:  DB.bodyweights || [],
+    settings:     DB.settings || {},
+    deleted:      DB.deleted || [],
   };
   const data = JSON.stringify(exportDB,null,2);
   const blob = new Blob([data],{type:"application/json"});
@@ -222,7 +376,10 @@ $("#importFile").addEventListener("change",e=>{
     const problem = validateBackup(obj);
     if(problem){ alert(`Invalid backup file — ${problem}`); e.target.value=""; return; }
     if(!confirm("Replace ALL current data with this backup?")) { e.target.value=""; return; }
+    // defensive defaults for fields added after initial release
     if(!Array.isArray(obj.deleted)) obj.deleted = [];
+    if(!Array.isArray(obj.bodyweights)) obj.bodyweights = [];
+    if(!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
     DB = obj;
     // mark all imported workouts as pending so they sync up
     if(currentUser) DB.workouts.forEach(w => { if(w.entries.length) w._sync = 'pending'; });
@@ -240,7 +397,7 @@ $("#wipeBtn").addEventListener("click",()=>{
   // tombstone all cloud-synced workouts before wiping — the list survives the
   // reset so syncPending() can flush the deletes on the next sync pass
   const tombstones = DB.workouts.filter(w => !w._demo).map(w => w.id);
-  DB = { exercises:[], workouts:[], deleted: tombstones };
+  DB = { exercises:[], workouts:[], deleted: tombstones, bodyweights:[], settings:{} };
   save(); render(); toast("All data erased");
 });
 

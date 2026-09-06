@@ -34,8 +34,22 @@ Load order (bottom of `<body>`, in dependency order):
 
 ## Data model
 
-- `DB = { exercises:[], workouts:[] }` in localStorage under `KEY`; `load()` / `save()`.
+- `DB = { exercises:[], workouts:[], deleted:[], bodyweights:[], settings:{} }` in
+  localStorage under `KEY`; `load()` / `save()`. Every field after `workouts` was
+  added post-release, so `load()` defaults each one in — never assume a stored DB
+  has them.
+- `settings` is read through `getSetting()` / `setSetting()`; `DEFAULT_SETTINGS`
+  in `core.js` is the single declaration of every key and its default, which is
+  why adding a setting needs no migration. Keep preferences here rather than in
+  their own localStorage key, or they fall out of the backup.
 - `save()` marks the edited workout `_sync:'pending'` and schedules a push.
+- `markDirty()` stamps `updatedAt` on the workout. It has to happen there and not
+  in `touchSession()`, which returns early for back-filled workouts and for the
+  first set of a session.
+- Two-device sync: `restoreFromCloud()` merges rather than skipping. The newer
+  `updatedAt` wins the workout's metadata, but entries and sets are always
+  unioned, so a set logged on either device survives. A merge that kept
+  local-only data is re-marked `pending` so the union goes back up.
 - Supabase `workouts` upserts on `(user_id, client_id)` — `client_id` is the app's
   local `uid()`, so re-syncs update rather than duplicate. RLS scopes every row to
   the signed-in user.
@@ -83,5 +97,9 @@ guarded before running it locally.
   CDN. Keep it that way — the whole point is that the app is one file you can open.
 - Compact style: `$` / `$$` helpers for querySelector, template literals for markup,
   event delegation over per-node listeners.
+- Comments explain *why*, not *what* — most of them record a bug that was already
+  paid for once. Don't strip them when refactoring.
+- Ghost (planned) sets are pure view state in `log.js` and must never reach `DB`.
+  An unlogged intention must not become a logged fact.
 - Theme is "Twilight" — mid blue-navy background, bright cyan accent, Plus Jakarta
   Sans. CSS custom properties are defined at the top of `css/app.css`.

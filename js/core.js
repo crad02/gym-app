@@ -32,10 +32,14 @@ function load(){
       const obj = JSON.parse(raw);
       // `deleted` was added after initial release — existing stored DBs won't have it
       if(!Array.isArray(obj.deleted)) obj.deleted = [];
+      // `bodyweights` added for bodyweight tracking — default empty on old devices
+      if(!Array.isArray(obj.bodyweights)) obj.bodyweights = [];
+      // `settings` added for user preferences — defaults filled lazily via getSetting()
+      if(!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
       return obj;
     }
   }catch(e){}
-  return { exercises:[], workouts:[], deleted:[] };
+  return { exercises:[], workouts:[], deleted:[], bodyweights:[], settings:{} };
 }
 // The single write path. Everything that mutates DB goes through here, so the
 // lookup index can't go stale and a failed write can't pass silently.
@@ -56,6 +60,11 @@ function persist(){
 // just-set endedAt as "logged again" and resumed the clock it had just stopped.
 function markDirty(){
   const w = workoutFor(editDate, false);
+  // Stamp the edit clock here rather than in touchSession(): that one bails out
+  // early for back-filled workouts and for the very first set, so a history edit
+  // or a Finish would never be timestamped and the other device's older copy
+  // would look fresher. markDirty() is the one path every mutation goes through.
+  if(w) w.updatedAt = Date.now();
   if(w && currentUser) w._sync = 'pending';
   persist();
   if(currentUser) scheduleSyncPending();
@@ -65,6 +74,29 @@ function markDirty(){
 function save(){
   touchSession();
   markDirty();
+}
+
+/* ---------- Settings helpers ---------- */
+// User preferences live in DB.settings so they ride along with export/import
+// and the same persist() path as everything else — a separate localStorage key
+// would silently not be in the backup.
+//
+// DEFAULT_SETTINGS is the single declaration of every key and its default.
+// getSetting() falls back to it, so adding a setting never needs a migration.
+const DEFAULT_SETTINGS = {
+  restDefaultSec:  90,    // rest after an isolation set, seconds (0 = timer off)
+  restCompoundSec: 180,   // rest after a compound set
+  barKg:           20,    // barbell weight the plate calculator subtracts
+  plates:          [25, 20, 15, 10, 5, 2.5, 1.25],   // one side's plate stock, kg
+};
+
+function getSetting(key){
+  const val = DB.settings[key];
+  return val !== undefined ? val : DEFAULT_SETTINGS[key];
+}
+function setSetting(key, value){
+  DB.settings[key] = value;
+  persist();
 }
 
 /* ---------- Supabase: auth + sync ---------- */
@@ -96,6 +128,8 @@ async function syncPending(){
           startedAt: w.startedAt ?? null,
           endedAt: w.endedAt ?? null,
           lastActivityAt: w.lastActivityAt ?? null,
+          // updatedAt lets the merge in restoreFromCloud() pick the fresher side
+          updatedAt: w.updatedAt ?? null,
           entries: w.entries.map(en => ({
             ...en, muscle: (exById(en.exId) || {}).muscle || 'Other'
           })) }
@@ -146,10 +180,108 @@ async function fetchLatestPlan(){
   }catch(_){}
 }
 
+// ─── Two-device merge rule ──────────────────────────────────────────────────
+// The rule, in one sentence: the side with the newer `updatedAt` wins the
+// workout's metadata, but entries and sets are always unioned, so a set logged
+// on either device survives the merge.
+//
+// Why a union and not last-write-wins: the two devices are the same person's
+// phone and tablet, and the thing they most often disagree about is "how many
+// sets are in this workout". Dropping the loser's sets destroys real training
+// data with no way to get it back. A duplicated set, by contrast, is visible in
+// the log and takes one tap to delete — so every ambiguous case resolves toward
+// keeping data.
+//
+// Called once per remote row during restoreFromCloud(). `local` is the workout
+// already in DB; `remote` is the Supabase row. Returns { workout, kept } where
+// `kept` is true when local-only data survived (so the result must be pushed
+// back up), or null when there is nothing to change.
+function mergeWorkout(local, remote){
+  const rp = remote.payload || {};
+  const remoteUpdatedAt = rp.updatedAt || 0;
+  const localUpdatedAt  = local.updatedAt || 0;
+
+  // Remote is not newer — keep local untouched. Note this is also the path
+  // every pre-`updatedAt` record takes (0 <= 0), so devices that haven't
+  // written since the upgrade keep the old insert-only behaviour.
+  if(remoteUpdatedAt <= localUpdatedAt) return null;
+
+  const remoteEntries = rp.entries || [];
+  if(!local.entries.length) return { workout: buildFromRemote(remote), kept: false };
+
+  // Index the local side by exId so a shared exercise merges its sets rather
+  // than one copy replacing the other.
+  const localByExId = new Map();
+  for(const en of local.entries) localByExId.set(en.exId, en);
+
+  let kept = false;
+  const entries = remoteEntries.map(ren => {
+    const len = localByExId.get(ren.exId);
+    if(!len) return ren;
+    localByExId.delete(ren.exId);
+    const sets = mergeSets(len.sets || [], ren.sets || []);
+    if(sets.length > (ren.sets || []).length) kept = true;
+    return { ...ren, sets };
+  });
+  // Whole exercises the remote never saw.
+  for(const len of localByExId.values()){ entries.push(len); kept = true; }
+
+  return {
+    workout: {
+      ...local,
+      // the remote saw action more recently, so its metadata is the fresher read
+      note:           rp.note ?? local.note,
+      startedAt:      rp.startedAt ?? local.startedAt,
+      endedAt:        rp.endedAt ?? local.endedAt,
+      lastActivityAt: rp.lastActivityAt ?? local.lastActivityAt,
+      updatedAt:      remoteUpdatedAt,
+      entries,
+      // Only clean if the remote already holds everything we do. If we kept
+      // local-only data the cloud copy is now incomplete, so it has to go back
+      // up — marking this 'synced' would strand those sets on this device.
+      _sync:          kept ? 'pending' : 'synced',
+    },
+    kept
+  };
+}
+
+// Sets carry no stable id, so identity has to be positional. Two devices
+// editing the same exercise share a prefix — the sets that existed before they
+// diverged — and differ only in what each added afterwards. Keep the prefix
+// once, then both tails.
+function mergeSets(localSets, remoteSets){
+  const n = Math.min(localSets.length, remoteSets.length);
+  let common = 0;
+  while(common < n && sameSet(localSets[common], remoteSets[common])) common++;
+  return [...remoteSets, ...localSets.slice(common)];
+}
+function sameSet(a, b){
+  return !!a && !!b && a.type === b.type && a.weight === b.weight && a.reps === b.reps
+      && (a.drops || []).length === (b.drops || []).length;
+}
+
+// Builds a local workout object from a raw Supabase row.
+function buildFromRemote(r){
+  const p = r.payload || {};
+  return {
+    id:             r.client_id,
+    date:           r.date,
+    note:           p.note ?? undefined,
+    startedAt:      p.startedAt ?? null,
+    endedAt:        p.endedAt ?? null,
+    lastActivityAt: p.lastActivityAt ?? null,
+    updatedAt:      p.updatedAt ?? null,
+    entries:        p.entries || [],
+    _sync:          'synced',
+  };
+}
+
 // Pull the user's workouts down into local storage. The missing half of sync:
 // localStorage is per-origin and per-device, so on a new domain / phone the
 // history is empty until we hydrate it from the cloud. Insert-only by client_id
 // — we never overwrite a local row, so unsynced local edits are always safe.
+// Where both sides have data, mergeWorkout() unions entries by exId and picks
+// the fresher metadata, so no logged set is silently lost.
 async function restoreFromCloud(){
   if(!sb || !currentUser) return;
   let rows;
@@ -166,29 +298,41 @@ async function restoreFromCloud(){
   const muscleByName = {};
   for(const c of LIB) muscleByName[c.n.toLowerCase()] = c.m;
 
-  const haveWorkout = new Set(DB.workouts.map(w => w.id));
+  const haveWorkout = new Map(DB.workouts.map(w => [w.id, w]));
   const tombstoned  = new Set(DB.deleted || []);  // don't resurrect rows we've tombstoned locally
   const haveExId    = new Set(DB.exercises.map(e => e.id));
-  let added = 0;
+  let added = 0, merged = 0, rescued = 0;
 
   for(const r of rows){
-    if(haveWorkout.has(r.client_id)) continue;   // never clobber local edits
     if(tombstoned.has(r.client_id)) continue;    // delete is pending sync — don't bring it back
-    const entries = (r.payload && r.payload.entries) || [];
-    DB.workouts.push({ id: r.client_id, date: r.date, entries,
-                       note: r.payload?.note ?? undefined,
-                       startedAt: r.payload?.startedAt ?? null,
-                       endedAt: r.payload?.endedAt ?? null,
-                       lastActivityAt: r.payload?.lastActivityAt ?? null,
-                       _sync: 'synced' });
-    haveWorkout.add(r.client_id);
+    if(haveWorkout.has(r.client_id)){
+      // We already have this workout locally — merge instead of skipping it.
+      const local  = haveWorkout.get(r.client_id);
+      const result = mergeWorkout(local, r);
+      if(result){
+        Object.assign(local, result.workout);
+        merged++;
+        if(result.kept) rescued++;
+        // ensure any newly merged exercises exist locally
+        for(const en of result.workout.entries){
+          if(en.exId && !haveExId.has(en.exId)){
+            DB.exercises.push({ id: en.exId, name: en.name,
+                                muscle: en.muscle || muscleByName[(en.name||'').toLowerCase()] || 'Other' });
+            haveExId.add(en.exId);
+          }
+        }
+      }
+      continue;
+    }
+    // Brand new workout from the cloud — insert it.
+    const w = buildFromRemote(r);
+    DB.workouts.push(w);
+    haveWorkout.set(r.client_id, w);
     added++;
     // rebuild any referenced exercises we don't have locally, so the PB /
     // Exercises screens and muscle grouping work after a restore
-    for(const en of entries){
+    for(const en of w.entries){
       if(en.exId && !haveExId.has(en.exId)){
-        // prefer the muscle carried in the payload (set on a device that knew
-        // it), then the starter catalog by name, then Other as a last resort.
         DB.exercises.push({ id: en.exId, name: en.name,
                             muscle: en.muscle || muscleByName[(en.name||'').toLowerCase()] || 'Other' });
         haveExId.add(en.exId);
@@ -196,10 +340,16 @@ async function restoreFromCloud(){
     }
   }
 
-  if(added){
+  if(added || merged){
     persist();
     render();
-    toast(`Restored ${added} workout${added>1?'s':''} from cloud ✓`);
+    const parts = [];
+    if(added)  parts.push(`${added} workout${added>1?'s':''} restored`);
+    if(merged) parts.push(`${merged} merged`);
+    toast(parts.join(', ') + ' from cloud ✓');
+    // A rescued workout holds sets the cloud copy is missing, so push it back
+    // up — otherwise the union we just built only ever exists on this device.
+    if(rescued) scheduleSyncPending();
   }
 }
 
