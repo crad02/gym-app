@@ -211,11 +211,18 @@ function ghostSeedFor(en){
     // last.sets is already filtered to work sets by the lookup index
     return last.sets.map(s=>({ weight:s.weight, reps:s.reps }));
   }
-  // No history: try coach aim, else one empty ghost
+  // No history. The coach's aim is personalised, so it beats a routine's
+  // generic target; the routine still gives us the right *number* of rows for a
+  // lift you've never done, which is better than a single blank one.
   const ex = exById(en.exId);
   const aim = ex ? coachAimFor(ex.name) : null;
   if(aim && aim.target_weight && aim.target_reps){
     return [{ weight: aim.target_weight, reps: aim.target_reps }];
+  }
+  const w = activeWorkout(false);
+  const target = w && w.routineId ? routineTargetFor(w.routineId, en.exId) : null;
+  if(target){
+    return Array.from({length: target.sets}, ()=>({ weight: null, reps: target.reps }));
   }
   return [{ weight: null, reps: null }];
 }

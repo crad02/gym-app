@@ -327,6 +327,7 @@ $("#exportBtn").addEventListener("click",()=>{
     bodyweights:  DB.bodyweights || [],
     settings:     DB.settings || {},
     deleted:      DB.deleted || [],
+    routines:     (DB.routines || []).map(({ _sync, ...rest }) => rest),
   };
   const data = JSON.stringify(exportDB,null,2);
   const blob = new Blob([data],{type:"application/json"});
@@ -380,9 +381,14 @@ $("#importFile").addEventListener("change",e=>{
     if(!Array.isArray(obj.deleted)) obj.deleted = [];
     if(!Array.isArray(obj.bodyweights)) obj.bodyweights = [];
     if(!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
+    if(!Array.isArray(obj.routines)) obj.routines = [];
+    if(!Array.isArray(obj.deletedRoutines)) obj.deletedRoutines = [];
     DB = obj;
     // mark all imported workouts as pending so they sync up
-    if(currentUser) DB.workouts.forEach(w => { if(w.entries.length) w._sync = 'pending'; });
+    if(currentUser){
+      DB.workouts.forEach(w => { if(w.entries.length) w._sync = 'pending'; });
+      DB.routines.forEach(r => { r._sync = 'pending'; });
+    }
     persist();
     render();
     toast("Backup restored");
@@ -397,7 +403,9 @@ $("#wipeBtn").addEventListener("click",()=>{
   // tombstone all cloud-synced workouts before wiping — the list survives the
   // reset so syncPending() can flush the deletes on the next sync pass
   const tombstones = DB.workouts.filter(w => !w._demo).map(w => w.id);
-  DB = { exercises:[], workouts:[], deleted: tombstones, bodyweights:[], settings:{} };
+  const routineTombstones = DB.routines.map(r => r.id);
+  DB = { exercises:[], workouts:[], deleted: tombstones, bodyweights:[], settings:{},
+         routines:[], deletedRoutines: routineTombstones };
   save(); render(); toast("All data erased");
 });
 

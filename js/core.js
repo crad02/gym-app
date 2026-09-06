@@ -36,10 +36,14 @@ function load(){
       if(!Array.isArray(obj.bodyweights)) obj.bodyweights = [];
       // `settings` added for user preferences — defaults filled lazily via getSetting()
       if(!obj.settings || typeof obj.settings !== 'object') obj.settings = {};
+      // `routines` + their own tombstone list, added with the Home screen
+      if(!Array.isArray(obj.routines)) obj.routines = [];
+      if(!Array.isArray(obj.deletedRoutines)) obj.deletedRoutines = [];
       return obj;
     }
   }catch(e){}
-  return { exercises:[], workouts:[], deleted:[], bodyweights:[], settings:{} };
+  return { exercises:[], workouts:[], deleted:[], bodyweights:[], settings:{},
+           routines:[], deletedRoutines:[] };
 }
 // The single write path. Everything that mutates DB goes through here, so the
 // lookup index can't go stale and a failed write can't pass silently.
@@ -99,6 +103,99 @@ function setSetting(key, value){
   persist();
 }
 
+/* ---------- Routines ---------- */
+// A routine is a saved running order of exercises. It holds no weights: the
+// numbers come from ghost sets, which read your actual history. `sets`/`reps`
+// are only a target for a lift you've never done before.
+//
+// Shape:
+//   { id, name, note, source, exercises:[{ exId, name, muscle, sets, reps }],
+//     createdAt, updatedAt, _sync }
+// `source` is "user" or "starter:<slug>" — it records where a routine came from
+// so an adopted template can be told apart from one built by hand, and stays
+// meaningful after the template itself is edited.
+
+function routineById(id){ return DB.routines.find(r => r.id === id); }
+
+// The one write path for routines, mirroring markDirty() for workouts.
+function saveRoutine(r){
+  r.updatedAt = Date.now();
+  if(currentUser) r._sync = 'pending';
+  if(!DB.routines.includes(r)) DB.routines.push(r);
+  persist();
+  if(currentUser) scheduleSyncPending();
+}
+
+function deleteRoutine(id){
+  const r = routineById(id);
+  if(!r) return null;
+  DB.routines = DB.routines.filter(x => x.id !== id);
+  // tombstone so the delete reaches the cloud too, the same way workouts do
+  if(!DB.deletedRoutines.includes(id)) DB.deletedRoutines.push(id);
+  persist();
+  if(currentUser) scheduleSyncPending();
+  // caller gets a restore closure for Undo — symmetric with snapshotWorkout()
+  return () => {
+    DB.routines.push(r);
+    DB.deletedRoutines = DB.deletedRoutines.filter(x => x !== id);
+    persist();
+  };
+}
+
+// Turn a starter template into a real routine the user owns. Exercises resolve
+// by name through ensureExercise(), because exIds are minted per-device.
+function adoptStarter(slug){
+  const t = STARTER_ROUTINES.find(x => x.slug === slug);
+  if(!t) return null;
+  const r = {
+    id: uid(),
+    name: t.name,
+    note: t.blurb || "",
+    source: "starter:" + t.slug,
+    exercises: t.exercises.map(e => {
+      const ex = ensureExercise(e.name, e.muscle);
+      return { exId: ex.id, name: ex.name, muscle: ex.muscle, sets: e.sets, reps: e.reps };
+    }),
+    createdAt: Date.now(),
+  };
+  saveRoutine(r);
+  return r;
+}
+
+// Load a routine into today's workout. Exercises the workout already has are
+// left alone rather than duplicated, so starting the same routine twice — or
+// starting one on top of a session already underway — is safe.
+//
+// No sets are created here. The routine decides *what* you're doing; ghost sets
+// decide the numbers, seeded from your history and falling back to the
+// routine's target only for a lift with none.
+function startRoutine(id){
+  const r = routineById(id);
+  if(!r) return 0;
+  setEditDate(todayKey());
+  const w = workoutFor(todayKey(), true);
+  let added = 0;
+  for(const re of r.exercises){
+    if(w.entries.some(en => en.exId === re.exId)) continue;
+    w.entries.push({ exId: re.exId, name: re.name, sets: [] });
+    added++;
+  }
+  // Remember where the session came from: it labels the workout in History and
+  // it's how ghostSeedFor() finds a target for a lift with no history.
+  w.routineId = r.id;
+  markDirty();
+  return added;
+}
+
+// The routine's own target for one exercise, or null. Used as the last resort
+// when seeding ghost sets for a lift that has never been logged.
+function routineTargetFor(routineId, exId){
+  const r = routineById(routineId);
+  if(!r) return null;
+  const e = r.exercises.find(x => x.exId === exId);
+  return (e && e.sets > 0 && e.reps > 0) ? { sets:e.sets, reps:e.reps } : null;
+}
+
 /* ---------- Supabase: auth + sync ---------- */
 let _syncTimer = null;
 function scheduleSyncPending(){
@@ -106,8 +203,50 @@ function scheduleSyncPending(){
   _syncTimer = setTimeout(syncPending, 2000);
 }
 
+// Routines push on the same schedule as workouts. They're small and rarely
+// change, so there's no merge rule here: last write wins. Losing a reordered
+// routine costs you a drag; losing a logged set costs you the set — which is
+// why only workouts get the union treatment.
+async function syncRoutines(){
+  if(!sb || !currentUser) return;
+  const pending  = DB.routines.filter(r => r._sync === 'pending');
+  const toDelete = [...(DB.deletedRoutines || [])];
+  if(!pending.length && !toDelete.length) return;
+
+  for(const r of pending){
+    try{
+      const { error } = await sb.from('routines').upsert({
+        user_id:   currentUser.id,
+        client_id: r.id,
+        payload: {
+          name: r.name, note: r.note ?? null, source: r.source ?? 'user',
+          createdAt: r.createdAt ?? null, updatedAt: r.updatedAt ?? null,
+          // carry name + muscle so a restore can rebuild exercises it lacks
+          exercises: r.exercises.map(e => ({
+            exId:e.exId, name:e.name,
+            muscle: e.muscle || (exById(e.exId)||{}).muscle || 'Other',
+            sets:e.sets ?? null, reps:e.reps ?? null
+          })),
+        }
+      }, { onConflict: 'user_id,client_id' });
+      if(!error) r._sync = 'synced';
+    }catch(_){}
+  }
+  // one at a time, so a failed delete is retried next pass instead of
+  // aborting the batch — same as the workout tombstones
+  for(const id of toDelete){
+    try{
+      const { error } = await sb.from('routines').delete()
+        .eq('user_id', currentUser.id).eq('client_id', id);
+      if(!error) DB.deletedRoutines = DB.deletedRoutines.filter(x => x !== id);
+    }catch(_){}
+  }
+  persist();
+}
+
 async function syncPending(){
   if(!sb || !currentUser) return;
+  syncRoutines();
   // _demo rows are localhost fixtures — they must never reach the real account
   const pending = DB.workouts.filter(w => w._sync === 'pending' && w.entries.length && !w._demo);
   // flush tombstones: each is a client_id we deleted locally and need gone from the cloud too
@@ -340,6 +479,8 @@ async function restoreFromCloud(){
     }
   }
 
+  await restoreRoutines(muscleByName, haveExId);
+
   if(added || merged){
     persist();
     render();
@@ -566,6 +707,48 @@ function finalizeStaleSessions(){
     if(!w.endedAt){ w.endedAt = w.lastActivityAt || w.startedAt; changed = true; }
   }
   if(changed) persist();
+}
+
+// Pull routines down. Insert-only by client_id: a routine already on this
+// device is never clobbered, so an unsynced rename survives a restore.
+async function restoreRoutines(muscleByName, haveExId){
+  if(!sb || !currentUser) return;
+  let rows;
+  try{
+    const { data, error } = await sb.from('routines')
+      .select('client_id, payload').eq('user_id', currentUser.id);
+    if(error || !data) return;
+    rows = data;
+  }catch(_){ return; }
+
+  const have       = new Set(DB.routines.map(r => r.id));
+  const tombstoned = new Set(DB.deletedRoutines || []);
+  let added = 0;
+
+  for(const row of rows){
+    if(have.has(row.client_id) || tombstoned.has(row.client_id)) continue;
+    const p = row.payload || {};
+    const exercises = (p.exercises || []).map(e => {
+      // rebuild any exercise this device doesn't have, so a restored routine
+      // isn't full of dead references
+      if(e.exId && !haveExId.has(e.exId)){
+        DB.exercises.push({ id:e.exId, name:e.name,
+          muscle: e.muscle || muscleByName[(e.name||'').toLowerCase()] || 'Other' });
+        haveExId.add(e.exId);
+      }
+      return { exId:e.exId, name:e.name, muscle:e.muscle,
+               sets:e.sets ?? null, reps:e.reps ?? null };
+    });
+    DB.routines.push({
+      id: row.client_id, name: p.name || 'Routine', note: p.note ?? '',
+      source: p.source || 'user', exercises,
+      createdAt: p.createdAt ?? null, updatedAt: p.updatedAt ?? null,
+      _sync: 'synced',
+    });
+    have.add(row.client_id);
+    added++;
+  }
+  if(added) persist();
 }
 
 /* ---------- Lookup index ---------- */

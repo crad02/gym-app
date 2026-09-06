@@ -5,6 +5,7 @@ const ASSETS = [
   "./",
   "./index.html",
   "./exercises.js?v=20",
+  "./routines.js?v=20",
   "./vendor/supabase.js?v=20",
   "./css/app.css?v=20",
   "./js/core.js?v=20",
