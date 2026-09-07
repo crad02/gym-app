@@ -1,5 +1,87 @@
 "use strict";
 /* ---------- EXERCISES / PBs ---------- */
+// A yyyy-mm-dd key N days back, in the same shape as core.js's todayKey() — used
+// to threshold "recent" without pulling in a date library.
+function daysAgoKey(n){
+  const d = new Date(); d.setDate(d.getDate()-n);
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+
+// One pass over every workout, building last-trained date / hard-set session
+// count / most-recent top set per exercise. The old flat list called pbFor()
+// per row, which is already O(1) thanks to core.js's lookup() cache — but the
+// grouped view also wants "when" and "how often", which lookup() doesn't
+// carry, so this is a second single pass rather than a per-row scan (the same
+// fix core.js applied to pbFor/lastSession, applied here to the new signal).
+function exActivity(){
+  const lastDate = {}, count = {}, lastTop = {};
+  const asc = [...DB.workouts].sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:0);
+  for(const w of asc){
+    for(const en of w.entries){
+      const work = en.sets.filter(isHardSet);
+      if(!work.length) continue;
+      count[en.exId] = (count[en.exId]||0) + 1;
+      lastDate[en.exId] = w.date;          // ascending order → last write wins = most recent
+      const top = work.reduce((a,b)=> (b.weight>a.weight||(b.weight===a.weight&&b.reps>a.reps))?b:a, work[0]);
+      lastTop[en.exId] = { weight:top.weight, reps:top.reps };
+    }
+  }
+  return { lastDate, count, lastTop };
+}
+
+// Muscle-group accordion state — which groups the user has manually expanded
+// or collapsed this session. Lazily seeded per group with a sensible default
+// (see exGroupDefaultOpen) the first time it's seen, then left alone so a tap
+// sticks across re-renders (a PB add, a search that clears, etc).
+let _exGroupOpen = null;
+function exGroupDefaultOpen(rows){
+  if(rows.length <= 3) return true;                 // nothing worth hiding
+  const cutoff = daysAgoKey(14);
+  return rows.some(r => r.last && r.last >= cutoff); // a group you're mid-cycle on stays open
+}
+function groupIsOpen(mg, rows, isSearch){
+  if(isSearch) return true;                          // search results are never collapsed
+  if(!_exGroupOpen) _exGroupOpen = {};
+  if(!(mg in _exGroupOpen)) _exGroupOpen[mg] = exGroupDefaultOpen(rows);
+  return _exGroupOpen[mg];
+}
+
+// A compact card for "trained in the last two weeks", newest first — the
+// question someone standing in the gym actually asks before "show me
+// everything", so it sits above the muscle groups rather than as one more
+// group among twelve.
+function recentStripHTML(rows){
+  const cutoff = daysAgoKey(14);
+  const recents = rows.filter(r => r.last && r.last >= cutoff && r.top)
+                       .sort((a,b)=> b.last.localeCompare(a.last))
+                       .slice(0, 10);
+  if(!recents.length) return "";
+  const cards = recents.map(r => `<div class="card tap ex-recent-card" data-ex-detail="${r.ex.id}">
+    <div class="ellip" style="font-weight:700;font-size:13px">${esc(r.ex.name)}</div>
+    <div class="tiny muted" style="margin-top:3px">${fmtKg(r.top.weight)} × ${r.top.reps}</div>
+    <div class="tiny faint" style="margin-top:1px">${dateLabel(r.last)}</div>
+  </div>`).join("");
+  return `<div class="grouphdr" style="margin-top:2px">RECENTLY TRAINED</div>
+    <div class="ex-recent-strip">${cards}</div>`;
+}
+
+// One exercise row: name + PB (the two things worth a glance), plus a
+// recency/frequency caption when there's history — "most trained" and
+// "stale" both fall out of the same line rather than needing their own
+// sections (see the muscle-group sort below for how recency also orders
+// the list itself).
+function exRowHTML(r){
+  const pb = pbFor(r.ex.id);
+  const pbHtml = pb
+    ? `<span class="pbbig">${fmtKg(pb.weight)} <small>×${pb.reps}</small></span>`
+    : `<span class="faint small">no PB yet</span>`;
+  const cap = r.count ? `${dateLabel(r.last)} · ${r.count} session${r.count===1?"":"s"}` : "";
+  return `<div class="card tap ex-row-card" data-ex-detail="${r.ex.id}">
+    <div class="ex-row"><span class="grow ellip" style="font-weight:600">${esc(r.ex.name)}</span>${pbHtml}</div>
+    ${cap ? `<div class="tiny faint" style="margin-top:3px">${esc(cap)}</div>` : ""}
+  </div>`;
+}
+
 function renderEx(){
   const q = $("#exSearch").value.trim().toLowerCase();
   $("#exCount").textContent = DB.exercises.length ? DB.exercises.length+" total" : "";
@@ -13,21 +95,32 @@ function renderEx(){
   }
   if(!list.length){ body.innerHTML = `<div class="empty">No matches.</div>`; return; }
 
+  const act = exActivity();
+  const enrich = e => ({ ex:e, last: act.lastDate[e.id]||null, count: act.count[e.id]||0, top: act.lastTop[e.id]||null });
+  const enriched = list.map(enrich);
+
   const byM = {};
-  for(const e of list){ (byM[e.muscle]=byM[e.muscle]||[]).push(e); }
+  for(const r of enriched){ (byM[r.ex.muscle]=byM[r.ex.muscle]||[]).push(r); }
   const order = MUSCLES.filter(m=>byM[m]);
-  body.innerHTML = order.map(mg=>{
-    const rows = byM[mg].map(e=>{
-      const pb = pbFor(e.id);
-      const pbHtml = pb
-        ? `<span class="pbbig">${fmtKg(pb.weight)} <small>×${pb.reps}</small></span>`
-        : `<span class="faint small">no PB yet</span>`;
-      return `<div class="card tap" data-ex-detail="${e.id}">
-        <div class="ex-row"><span class="grow ellip" style="font-weight:600">${esc(e.name)}</span>${pbHtml}</div>
-      </div>`;
-    }).join("");
-    return `<div class="grouphdr">${esc(mg)}</div>${rows}`;
+  const isSearch = !!q;
+
+  const groupsHTML = order.map(mg=>{
+    // most-recently-trained first within a group; never-logged lifts fall to
+    // the bottom, alphabetically, rather than cluttering the top with zeros
+    const rows = byM[mg].sort((a,b)=> (b.last||"").localeCompare(a.last||"") || a.ex.name.localeCompare(b.ex.name));
+    const open = groupIsOpen(mg, rows, isSearch);
+    const freshest = rows.find(r=>r.last);
+    const meta = freshest ? `${rows.length} · last ${dateLabel(freshest.last)}` : `${rows.length}`;
+    const head = `<div class="exg-head${open?" open":""}" data-group-toggle="${esc(mg)}">
+      <span class="exg-name">${esc(mg)}</span>
+      <span class="exg-meta">${esc(meta)} <span class="caret">▼</span></span>
+    </div>`;
+    if(!open) return head;
+    return head + rows.map(exRowHTML).join("");
   }).join("");
+
+  const recentHTML = isSearch ? "" : recentStripHTML(enriched);
+  body.innerHTML = recentHTML + groupsHTML;
 }
 
 let _pick = [];
@@ -259,7 +352,9 @@ function closePBPop(){ $("#pbPop").classList.remove("open"); }
 $("#pbPop").addEventListener("click", e=>{
   if(e.target.id === "pbPop" || e.target.closest("[data-popclose]")){ closePBPop(); return; }
   const d = e.target.closest("[data-popdetail]");
-  if(d){ closePBPop(); switchTab("ex"); openExDetail(d.dataset.popdetail); }
+  // the link says "Full history" — land on that tab, not whatever the
+  // exercise's default (Stats, usually) would otherwise pick
+  if(d){ closePBPop(); switchTab("ex"); openExDetail(d.dataset.popdetail, "history"); }
 });
 
 function chartReadHTML(p, pbFlag, latest){
@@ -267,30 +362,90 @@ function chartReadHTML(p, pbFlag, latest){
     <span class="cr-v">${fmtKg(p.top.weight)} <span class="muted">× ${p.top.reps}</span>${pbFlag?' <span class="pbflag">PB</span>':''}</span>`;
 }
 
-function openExDetail(exId){
+/* ---------- Exercise detail sheet: How-to / Stats / History ---------- */
+// Which exercise the open sheet's tabs belong to, which tab is showing, and a
+// token that invalidates a stale async How-to load (see loadFedb below) once
+// the sheet has moved on to something else — reopened on a different
+// exercise, or replaced by Edit. Plain module state, same pattern as
+// activeCoachGroup in coach.js: this is UI state, not DB state.
+let _exDetailId = null;
+let _exDetailTab = "stats";
+let _exDetailToken = 0;
+
+const EX_DETAIL_TABS = ["howto","stats","history"];
+function exTabLabel(t){ return t==="howto" ? "How-to" : t==="stats" ? "Stats" : "History"; }
+
+// exId, and an optional tab to force open on — the PB popover's "Full
+// history" link wants History specifically, everything else gets a sensible
+// default: jump straight to the numbers for a lift you've logged before,
+// otherwise open on how to actually do it.
+function openExDetail(exId, tab){
   const ex = exById(exId); if(!ex) return;
-  const pb = pbFor(exId);
-  const hist = exHistory(exId);
+  _exDetailId = exId;
+  _exDetailTab = tab || (pbFor(exId) ? "stats" : "howto");
+  _exDetailToken++;
+  renderExDetailSheet();
+}
 
-  const rows = hist.length? hist.map(h=>{
-    const isPB = pb && h.top.weight===pb.weight && h.top.reps===pb.reps;
-    return `<div class="row between" style="padding:9px 0;border-top:1px solid var(--border)">
-      <span class="small">${dateLabel(h.date)}</span>
-      <span class="small"><b>${fmtKg(h.top.weight)}×${h.top.reps}</b> ${isPB?'<span class="pbflag">PB</span>':''} <span class="faint">· ${h.sets} sets</span></span>
-    </div>`;
-  }).join("") : '<div class="faint small" style="padding:14px 0">No working sets logged yet.</div>';
-
+function renderExDetailSheet(){
+  const ex = exById(_exDetailId); if(!ex) return;
   openSheet(`
     <div class="row between" style="margin-bottom:4px">
-      <h2 style="margin:0">${esc(ex.name)}</h2>
-      <button class="link small" data-edit-ex="${ex.id}" style="white-space:nowrap">Edit</button>
+      <h2 class="ellip" style="margin:0">${esc(ex.name)}</h2>
+      <button class="link small" data-edit-ex="${ex.id}" style="white-space:nowrap;flex-shrink:0">Edit</button>
     </div>
     <span class="chip"><span class="dot"></span>${esc(ex.muscle)}</span>
+    <div class="group-tabs" style="margin-top:14px">
+      ${EX_DETAIL_TABS.map(t=>`<button class="gtab${_exDetailTab===t?" on":""}" data-ex-tab="${t}">${exTabLabel(t)}</button>`).join("")}
+    </div>
+    <div id="exDetailBody">${exDetailBodyHTML(ex)}</div>
+    <hr class="hr">
+    <button class="btn full danger ghost" data-del-ex="${ex.id}">Delete exercise &amp; its data</button>
+  `);
+}
+
+function exDetailBodyHTML(ex){
+  if(_exDetailTab === "howto") return howtoTabHTML(ex);
+  if(_exDetailTab === "history") return historyTabHTML(ex);
+  return statsTabHTML(ex);
+}
+
+/* ---- Stats tab: PB, session count, frequency, best set, the chart, add-result ---- */
+// Distinct from PB (heaviest weight, reps as tiebreak — see core.js's
+// lookup()): the single set with the highest weight×reps ever logged, which
+// can be a different set entirely (a lighter set for more reps). Complements
+// the PB rather than repeating it.
+function bestSetByVolume(exId){
+  let best = null;
+  for(const w of DB.workouts){
+    const en = w.entries.find(e=>e.exId===exId); if(!en) continue;
+    for(const s of en.sets){
+      if(!isHardSet(s)) continue;
+      const v = setVolume(s);
+      if(!best || v>best.vol) best = { weight:s.weight, reps:s.reps, vol:v };
+    }
+  }
+  return best;
+}
+
+function statsTabHTML(ex){
+  const pb = pbFor(ex.id);
+  const hist = exHistory(ex.id);
+  const best = bestSetByVolume(ex.id);
+  const freq8w = hist.filter(h => h.date >= daysAgoKey(56)).length;
+  return `
     <div class="card" style="margin-top:14px;text-align:center">
       <div class="small muted" style="font-weight:700;margin-bottom:4px">PERSONAL BEST</div>
       ${pb? `<div style="font-size:30px;font-weight:800">${fmtKg(pb.weight)} <span class="muted" style="font-size:18px">× ${pb.reps}</span></div><div class="faint small">${dateLabel(pb.date)}</div>`
           : '<div class="faint">Not set yet</div>'}
     </div>
+    <div class="statgrid">
+      <div class="stat"><div class="n">${hist.length}</div><div class="l">Sessions</div></div>
+      <div class="stat"><div class="n">${freq8w}</div><div class="l">Last 8wk</div></div>
+      <div class="stat"><div class="n">${best? fmtKg(best.weight)+"×"+best.reps : "—"}</div><div class="l">Best set · vol</div></div>
+    </div>
+    <div class="grouphdr" style="margin-left:0">PROGRESSION <span class="faint" style="font-weight:600;text-transform:none;letter-spacing:0">· top set</span></div>
+    ${progressChartHTML(hist, pb)}
     <div class="grouphdr" style="margin-left:0">ADD A RESULT</div>
     <div class="setform" style="margin-top:0">
       <div class="field" style="margin:0"><label>Weight (kg)</label><input class="in" inputmode="decimal" enterkeyhint="done" id="resW" placeholder="0"></div>
@@ -300,13 +455,113 @@ function openExDetail(exId){
     <div class="field" style="margin-top:10px"><label>Date</label>
       <input type="date" class="datepick" id="resDate" value="${todayKey()}" max="${todayKey()}" style="width:100%"></div>
     <div class="tiny faint" style="margin:8px 0 2px">Logs a working set on that date — updates your PB if it beats it.</div>
-    <div class="grouphdr" style="margin-left:0">PROGRESSION <span class="faint" style="font-weight:600;text-transform:none;letter-spacing:0">· top set</span></div>
-    ${progressChartHTML(hist, pb)}
-    <div class="grouphdr" style="margin-left:0">SESSION HISTORY</div>
-    ${rows}
-    <hr class="hr">
-    <button class="btn full danger ghost" data-del-ex="${ex.id}">Delete exercise &amp; its data</button>
-  `);
+  `;
+}
+
+/* ---- History tab: every session, newest first ---- */
+function historyTabHTML(ex){
+  const pb = pbFor(ex.id);
+  const hist = exHistory(ex.id);
+  if(!hist.length) return '<div class="faint small" style="padding:20px 0">No working sets logged yet.</div>';
+  return `<div style="margin-top:14px">` + hist.map(h=>{
+    const isPB = pb && h.top.weight===pb.weight && h.top.reps===pb.reps;
+    return `<div class="row between" style="padding:9px 0;border-top:1px solid var(--border)">
+      <span class="small">${dateLabel(h.date)}</span>
+      <span class="small"><b>${fmtKg(h.top.weight)}×${h.top.reps}</b> ${isPB?'<span class="pbflag">PB</span>':''} <span class="faint">· ${h.sets} sets</span></span>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+/* ---- How-to tab: free-exercise-db images + instructions ---- */
+// exercises.js's CATALOG only kept n/m/e (see its header comment) — the id
+// free-exercise-db needs for image paths was dropped. Matching by the exact
+// name instead of re-deriving their id-slug sidesteps that entirely: CATALOG's
+// "n" *is* free-exercise-db's "name" (that's where it came from), so a
+// case-insensitive name match is exact for all 675 catalogue entries with no
+// slugify edge cases to get wrong — measured against the live dataset:
+//   675/675 catalogue names resolve this way.
+// (A slug transform — replace spaces "/" with "_", but also strip "()'" —
+// gets there too, and is what free-exercise-db's own ids look like, but it's
+// one more thing to get subtly wrong for zero benefit once the JSON is
+// already being fetched for `instructions` anyway.)
+//
+// The JSON is ~1MB, so it's fetched once, lazily, only when a How-to tab is
+// actually opened, and cached here for the rest of the session — never on
+// boot, never per render (see CLAUDE.md's "app must boot instantly offline").
+// A failed fetch (offline) is remembered too, so a flaky connection doesn't
+// get hammered again on every tab switch — the user can reload to retry.
+const FEDB_JSON_URL = "https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@main/dist/exercises.json";
+const FEDB_IMG_BASE = "https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@main/exercises/";
+let _fedbIndex = null;      // Map<lowercased name, entry> once loaded
+let _fedbFailed = false;
+let _fedbLoading = false;
+let _fedbWaiters = [];
+
+function loadFedb(cb){
+  if(_fedbIndex || _fedbFailed){ cb(); return; }
+  _fedbWaiters.push(cb);
+  if(_fedbLoading) return;                 // a fetch is already in flight — cb is queued, not dropped
+  _fedbLoading = true;
+  fetch(FEDB_JSON_URL).then(r => r.ok ? r.json() : Promise.reject())
+    .then(data => { _fedbIndex = new Map(data.map(e => [String(e.name||"").trim().toLowerCase(), e])); })
+    .catch(() => { _fedbFailed = true; })
+    .finally(() => {
+      _fedbLoading = false;
+      const waiters = _fedbWaiters; _fedbWaiters = [];
+      waiters.forEach(w => w());
+    });
+}
+function fedbFor(name){ return _fedbIndex ? (_fedbIndex.get(String(name).trim().toLowerCase()) || null) : null; }
+function capWord(s){ return s ? s.charAt(0).toUpperCase()+s.slice(1) : s; }
+
+function howtoTabHTML(ex){
+  if(_fedbIndex){
+    const entry = fedbFor(ex.name);
+    // No image, never a broken one: an exercise the user typed themselves
+    // (or a catalogue name the dataset genuinely lacks) just has no guide.
+    return entry
+      ? howtoFoundHTML(ex, entry)
+      : `<div class="faint small center" style="padding:32px 12px">No illustrated guide for this one — it isn't in the reference library.</div>`;
+  }
+  if(_fedbFailed){
+    return `<div class="faint small center" style="padding:32px 12px">Step-by-step guide needs a connection.<br>It'll load next time you're online.</div>`;
+  }
+  // Kick off the (memoized) fetch and paint a static placeholder in the
+  // meantime — not a spinner, since there's nothing animating and nothing
+  // that can hang: the promise always settles, one way or the other.
+  const token = _exDetailToken, exId = ex.id;
+  loadFedb(() => {
+    if(_exDetailToken !== token || _exDetailId !== exId || _exDetailTab !== "howto") return; // sheet moved on
+    const el = $("#exDetailBody");
+    if(el) el.innerHTML = howtoTabHTML(ex);          // now resolved (found, not-found, or offline) — repaint
+  });
+  return `<div class="faint small center" style="padding:32px 12px">Loading guide…</div>`;
+}
+
+// The dataset's two shots are start/end of the rep — held a beat each with a
+// short crossfade between them reads as "form demo" rather than a flicker;
+// prefers-reduced-motion drops it to the static start frame. Deliberately not
+// a tap-to-toggle: this is reference material glanced at once, not something
+// worth a control of its own.
+function howtoFoundHTML(ex, entry){
+  const imgs = (entry.images||[]).slice(0,2);
+  const media = imgs.length ? `<div class="howto-media" data-howto-media>
+      ${imgs.map((p,i)=>{
+        const cls = imgs.length===2 ? `howto-frame f${i}` : "howto-frame single";
+        const pos = i===0 ? "start" : "end";
+        return `<img src="${esc(FEDB_IMG_BASE+p)}" alt="${esc(ex.name)} — ${pos} position" loading="lazy" class="${cls}" data-howto-img>`;
+      }).join("")}
+      <div class="howto-fallback tiny faint">Preview needs a connection</div>
+    </div>` : "";
+  const meta = [entry.mechanic, entry.force, entry.level].filter(Boolean)
+    .map(t => `<span class="chip">${esc(capWord(t))}</span>`).join("");
+  // instructions are free-text from an external dataset, not markup we wrote — esc() every line
+  const steps = (entry.instructions||[]).filter(Boolean).map(s => `<li>${esc(s)}</li>`).join("");
+  return `<div style="margin-top:14px">
+    ${media}
+    ${meta ? `<div class="chips" style="margin-bottom:12px">${meta}</div>` : ""}
+    ${steps ? `<ol class="howto-steps">${steps}</ol>` : '<div class="faint small">No written instructions for this one either.</div>'}
+  </div>`;
 }
 
 // # of logged workouts that reference an exercise — used to size up a merge.
@@ -422,6 +677,8 @@ $("#addExToListBtn").addEventListener("click",()=>{
 
 $("#exSearch").addEventListener("input", renderEx);
 $("#exBody").addEventListener("click",e=>{
+  const g = e.target.closest("[data-group-toggle]");
+  if(g){ const m = g.dataset.groupToggle; _exGroupOpen[m] = !_exGroupOpen[m]; renderEx(); return; }
   const d = e.target.closest("[data-ex-detail]");
   if(d) openExDetail(d.dataset.exDetail);
 });
@@ -434,7 +691,20 @@ $("#sheet").addEventListener("keydown", e=>{
   const add = $("#resAdd");
   if(add && (e.target.id === "resW" || e.target.id === "resR")){ e.preventDefault(); add.click(); }
 });
+// `error` doesn't bubble, so this has to run in the capture phase to reach a
+// delegated handler at all — the How-to tab's two <img> frames are the only
+// thing in the sheet that can fail to load (see FEDB_IMG_BASE / howtoFoundHTML):
+// they're cross-origin, so the service worker never caches them (sw.js), and a
+// bad connection means a real load failure, not just a slow one.
+$("#sheet").addEventListener("error", e=>{
+  const img = e.target;
+  if(!img || img.tagName !== "IMG" || !img.hasAttribute("data-howto-img")) return;
+  const media = img.closest(".howto-media");
+  if(media) media.classList.add("img-fail");
+}, true);
 $("#sheet").addEventListener("click",e=>{
+  const tabBtn = e.target.closest("[data-ex-tab]");
+  if(tabBtn){ _exDetailTab = tabBtn.dataset.exTab; renderExDetailSheet(); return; }
   const res = e.target.closest("[data-res]");
   if(res){
     const id = res.dataset.res;

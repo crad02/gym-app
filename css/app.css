@@ -745,3 +745,75 @@
   .bodygraph-empty{
     text-align:center;font-size:12px;color:var(--faint);margin:10px 0 2px;
   }
+
+
+  /* ================================================================
+     EXERCISES TAB v2 — browsable library + exercise detail (js/library.js)
+     Grouped-by-muscle accordion + a "recently trained" strip replace the old
+     flat alphabetical list; the exercise sheet grew How-to / Stats / History
+     tabs. Append-only block — nothing above this line was touched.
+     ================================================================ */
+
+  /* library rows — tighter than a bare .card so a scan list of many
+     exercises doesn't read as one full-size card per line */
+  .ex-row-card{padding:11px 14px;margin-bottom:8px;}
+
+  /* muscle-group accordion header */
+  .exg-head{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    margin:18px 2px 8px;cursor:pointer;-webkit-tap-highlight-color:transparent;
+  }
+  .exg-head .exg-name{
+    font-size:13px;font-weight:700;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.5px;
+  }
+  .exg-head .exg-meta{
+    display:flex;align-items:center;gap:6px;
+    font-size:11px;color:var(--faint);font-weight:600;white-space:nowrap;flex-shrink:0;
+  }
+  .exg-head .exg-meta .caret{margin-left:0;}
+  .exg-head.open .exg-meta .caret{transform:rotate(180deg);color:var(--accent);}
+
+  /* "recently trained" strip — horizontally scrollable, own row above the
+     muscle groups rather than one more group among twelve */
+  .ex-recent-strip{
+    display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;margin-bottom:6px;
+    scrollbar-width:none;
+  }
+  .ex-recent-strip::-webkit-scrollbar{display:none;}
+  .ex-recent-card{flex-shrink:0;width:130px;margin-bottom:0;}
+
+  /* exercise detail sheet — Stats tab stat tiles */
+  .statgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;}
+  .statgrid .stat{padding:10px 8px;text-align:center;}
+  .statgrid .stat .n{font-size:16px;}
+
+  /* exercise detail sheet — How-to tab */
+  .howto-media{
+    position:relative;width:100%;aspect-ratio:4/3;border-radius:13px;
+    overflow:hidden;background:var(--surface-2);margin-bottom:12px;
+  }
+  .howto-frame{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;}
+  .howto-frame.single{opacity:1;}
+  .howto-fallback{
+    display:none;position:absolute;inset:0;align-items:center;justify-content:center;
+    text-align:center;padding:16px;
+  }
+  /* a failed <img> swaps to a calm message instead of a broken-image icon —
+     these are cross-origin (free-exercise-db via jsdelivr), and sw.js
+     deliberately never caches cross-origin requests, so a bad connection is a
+     real load failure, not just a slow one. The box keeps its aspect-ratio
+     either way so nothing in the sheet jumps. */
+  .howto-media.img-fail .howto-frame{display:none;}
+  .howto-media.img-fail .howto-fallback{display:flex;}
+  /* the dataset's two shots are start/end of the rep; held a beat each with a
+     short crossfade reads as a form demo rather than a flicker */
+  @media (prefers-reduced-motion:no-preference){
+    .howto-frame.f0{animation:howtoCrossA 3.2s ease-in-out infinite;}
+    .howto-frame.f1{animation:howtoCrossB 3.2s ease-in-out infinite;}
+  }
+  @keyframes howtoCrossA{0%,40%{opacity:1;}50%,90%{opacity:0;}100%{opacity:1;}}
+  @keyframes howtoCrossB{0%,40%{opacity:0;}50%,90%{opacity:1;}100%{opacity:0;}}
+  .howto-steps{margin:0;padding-left:20px;}
+  .howto-steps li{font-size:14px;line-height:1.55;margin-bottom:9px;color:var(--text);}
+  .howto-steps li:last-child{margin-bottom:0;}
