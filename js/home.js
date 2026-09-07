@@ -102,6 +102,17 @@ function heroCardHTML(){
   </div>`;
 }
 
+/* ---------- this week's muscles ---------- */
+// Compact + no legend: Home is already a stack of cards (hero, streak,
+// routines, templates), so the figure here is a glance, not the full
+// reference — Coach is where the band legend and per-muscle detail live.
+// Always rendered, even at zero sets: a quiet grey figure is the point (see
+// bodygraph.js's file header) — hiding the card on a fresh week would just
+// replace "quiet" with "missing", which reads as broken, not calm.
+function bodygraphCardHTML(){
+  return bodygraphHTML(weekWorkSetsByMuscle(), { compact:true, legend:false, heading:"THIS WEEK'S MUSCLES" });
+}
+
 /* ---------- warmth: a glance, not a wall ---------- */
 function warmthCardHTML(){
   if(!DB.workouts.some(w => w.entries.length)) return "";
@@ -183,7 +194,7 @@ function renderHome(){
   if(dateEl) dateEl.textContent = fullDate(todayKey());
 
   const routines = DB.routines.slice().sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
-  body.innerHTML = heroCardHTML() + warmthCardHTML()
+  body.innerHTML = heroCardHTML() + bodygraphCardHTML() + warmthCardHTML()
     + routinesSectionHTML(routines) + templatesSectionHTML(routines);
 }
 

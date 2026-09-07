@@ -671,3 +671,77 @@
     nav button{font-size:9px;padding:4px 2px;}
     nav svg{width:20px;height:20px;}
   }
+
+  /* ================================================================
+     BODYGRAPH — weekly muscle heatmap figure (js/bodygraph.js)
+     Home + Coach both embed bodygraphHTML()'s output as-is; every rule
+     below is scoped to classes that file emits, so it's safe appended
+     here regardless of what else lands at the end of this file.
+     ================================================================ */
+  .bodygraph-card{padding:12px 14px;}
+  .bodygraph-compact{padding:10px 12px;}
+  .bodygraph-heading{
+    font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--muted);
+    margin-bottom:8px;text-transform:uppercase;
+  }
+  .bodygraph-views{display:flex;gap:10px;justify-content:center;}
+  .bodygraph-view{flex:1;max-width:180px;text-align:center;}
+  .bodygraph-view svg{width:100%;height:auto;display:block;overflow:visible;}
+  .bodygraph-view-label{
+    font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--faint);
+    text-transform:uppercase;margin-top:2px;
+  }
+  .bodygraph-compact .bodygraph-view-label{display:none;}
+  /* smaller cap than the full 180px — Home is a stack of cards competing for
+     vertical space, so compact stays a glance even on a wide phone/tablet */
+  .bodygraph-compact .bodygraph-view{max-width:130px;}
+
+  /* muscle regions: same band classes coach.js's volume bars use
+     (vol-under/vol-good/vol-high), reused here for the same colours —
+     fill (+ fill-opacity, so gold and green don't compete for attention
+     at the same visual weight) is all each band needs to set */
+  .mg{stroke:var(--border);stroke-width:.6;stroke-linejoin:round;transition:fill .25s;}
+  .mg-base{fill:var(--surface-2);stroke:var(--border);stroke-width:.8;stroke-linejoin:round;}
+  .mg-decor{fill:none;stroke:var(--border);stroke-width:1;stroke-linecap:round;opacity:.8;}
+  /* untrained (0 sets) reads as the same quiet tone as the plain silhouette —
+     see bodygraph.js's file header on why this differs from coach.js's bars */
+  .mg.untrained{fill:var(--surface-2);}
+  .mg.vol-under{fill:var(--gold);fill-opacity:.85;}
+  .mg.vol-good{fill:var(--good);fill-opacity:.95;}
+  .mg.vol-high{fill:var(--danger);}
+
+  .bodygraph-legend{
+    display:flex;justify-content:center;gap:14px;margin-top:12px;
+    font-size:11px;color:var(--muted);font-weight:600;
+  }
+  .bodygraph-legend-item{display:inline-flex;align-items:center;gap:5px;}
+  .bodygraph-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  .bodygraph-dot.vol-under{background:var(--gold);}
+  .bodygraph-dot.vol-good{background:var(--good);}
+  .bodygraph-dot.vol-high{background:var(--danger);}
+  .bodygraph-other{
+    margin-top:10px;font-size:11px;color:var(--faint);text-align:center;
+  }
+  .bodygraph-other b{color:var(--muted);font-weight:700;}
+
+  /* per-muscle counts under the figure — restores the number the bar list
+     this replaced used to carry (a <title> is invisible on a phone) */
+  .bodygraph-counts{
+    display:flex;flex-wrap:wrap;gap:6px;justify-content:center;
+    margin:10px 0 2px;
+  }
+  .bodygraph-count{
+    display:inline-flex;align-items:center;gap:5px;
+    font-size:11px;font-weight:600;color:var(--muted);
+    background:var(--surface-2);border:1px solid var(--border);
+    padding:3px 8px;border-radius:999px;
+  }
+  .bodygraph-count b{font-weight:800;font-variant-numeric:tabular-nums;}
+  /* must track .mg.vol-* / .bodygraph-dot.vol-* above — a chip that disagrees
+     with the shape it describes is worse than no chip */
+  .bodygraph-count.vol-under b{color:var(--gold);}
+  .bodygraph-count.vol-good  b{color:var(--good);}
+  .bodygraph-count.vol-high  b{color:var(--danger);}
+  .bodygraph-empty{
+    text-align:center;font-size:12px;color:var(--faint);margin:10px 0 2px;
+  }

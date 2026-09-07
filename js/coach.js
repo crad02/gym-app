@@ -37,29 +37,14 @@ function weekWorkSetsByMuscle(){
   return tally;
 }
 
-function volumeStripHTML(groupName){
-  const muscles = GROUP_MUSCLES[groupName] || [];
-  if(!muscles.length) return "";
-  const tally = weekWorkSetsByMuscle();
-  const total = muscles.reduce((sum,m)=>sum+(tally[m]||0), 0);
-  const rows = muscles.map(m=>{
-    const n = tally[m] || 0;
-    // bar spans the full 10–20 band; the tick marks the 10-set minimum (at 50%)
-    const pct = Math.min(n/VOL_HIGH, 1)*100;
-    let cls="vol-under", tag="build";
-    if(n >= VOL_HIGH){ cls="vol-high"; tag="high"; }
-    else if(n >= VOL_MIN){ cls="vol-good"; tag="on target"; }
-    return `<div class="vol-row">
-      <div class="vol-name">${esc(m)}</div>
-      <div class="vol-bar"><div class="vol-tick"></div><div class="vol-fill ${cls}" style="width:${pct}%"></div></div>
-      <div class="vol-count ${cls}">${n}<span class="vol-tag">${tag}</span></div>
-    </div>`;
-  }).join("");
-  return `<div class="card vol-card">
-    <div class="vol-head"><span>THIS WEEK · hard sets</span><span class="vol-sub">band ${VOL_MIN}–${VOL_HIGH} / muscle</span></div>
-    ${total ? rows : `<div class="vol-empty">No sets logged yet this week — go bank some.</div>`}
-  </div>`;
-}
+// volumeStripHTML() used to render here: a bar list scoped to whichever
+// group tab was active, so it changed contents every time you switched tabs
+// and only ever showed a quarter of the week. bodygraphHTML() (js/bodygraph.js,
+// loads after this file — see index.html) replaced it in renderCoach() below
+// with one whole-body figure that doesn't depend on activeCoachGroup, using
+// the exact same weekWorkSetsByMuscle() / VOL_MIN / VOL_HIGH this file still
+// owns. Its CSS (.vol-card, .vol-row, …) is unused now but left in place —
+// css/app.css is append-only in this pass.
 
 // Match a lab-provided app exercise name to the user's own exercise list.
 function appExerciseByName(name){
@@ -214,8 +199,10 @@ function renderCoach(){
   const body = $("#coachBody");
 
   // live weekly volume — pure local data, shown above the plan (and even before
-  // the first lab run, so logging gives immediate feedback)
-  const volHTML = volumeStripHTML(activeCoachGroup);
+  // the first lab run, so logging gives immediate feedback). Whole-body, not
+  // scoped to activeCoachGroup — see the comment above where volumeStripHTML()
+  // used to be defined for why that was replaced rather than kept alongside.
+  const volHTML = bodygraphHTML(weekWorkSetsByMuscle(), { heading:"THIS WEEK · hard sets" });
 
   if(!plan){
     body.innerHTML = volHTML + (!currentUser

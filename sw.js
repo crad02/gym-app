@@ -15,6 +15,7 @@ const ASSETS = [
   "./js/library.js?v=21",
   "./js/coach.js?v=21",
   "./js/more.js?v=21",
+  "./js/bodygraph.js?v=21",
   "./js/home.js?v=21",
   "./js/boot.js?v=21",
   "./manifest.webmanifest",
