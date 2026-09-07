@@ -316,25 +316,6 @@
   .focus-target{font-size:12px;color:var(--accent);font-weight:700;background:var(--accent-dim);
     padding:4px 9px;border-radius:8px;white-space:nowrap;}
   .focus-note{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.5;}
-  /* live weekly volume strip */
-  .vol-card{padding:12px 14px;margin-bottom:12px;}
-  .vol-head{font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--muted);
-    margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline;}
-  .vol-sub{font-size:10px;font-weight:600;color:var(--faint);letter-spacing:0;}
-  .vol-row{display:flex;align-items:center;gap:10px;padding:6px 0;}
-  .vol-name{width:78px;font-size:13px;font-weight:600;flex-shrink:0;}
-  .vol-bar{flex:1;height:9px;border-radius:999px;background:var(--surface-2);position:relative;overflow:hidden;}
-  .vol-tick{position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--faint);opacity:.55;z-index:2;}
-  .vol-fill{height:100%;border-radius:999px;position:relative;z-index:1;transition:width .3s;}
-  .vol-count{width:60px;text-align:right;font-size:15px;font-weight:800;flex-shrink:0;line-height:1.05;}
-  .vol-tag{display:block;font-size:9px;font-weight:600;letter-spacing:.3px;opacity:.85;}
-  .vol-fill.vol-under{background:var(--gold);}
-  .vol-fill.vol-good{background:var(--good);}
-  .vol-fill.vol-high{background:var(--danger);}
-  .vol-count.vol-under{color:var(--gold);}
-  .vol-count.vol-good{color:var(--good);}
-  .vol-count.vol-high{color:var(--danger);}
-  .vol-empty{font-size:12px;color:var(--faint);padding:2px 0;}
   /* coach v2 — headline, freshness, lab chips, focus extras */
   .coach-headline{padding:13px 15px;margin-bottom:12px;}
   .coach-headline .hl-text{font-size:14px;line-height:1.5;font-weight:600;}
@@ -696,29 +677,25 @@
      vertical space, so compact stays a glance even on a wide phone/tablet */
   .bodygraph-compact .bodygraph-view{max-width:130px;}
 
-  /* muscle regions: same band classes coach.js's volume bars use
-     (vol-under/vol-good/vol-high), reused here for the same colours —
-     fill (+ fill-opacity, so gold and green don't compete for attention
-     at the same visual weight) is all each band needs to set */
-  .mg{stroke:var(--border);stroke-width:.6;stroke-linejoin:round;transition:fill .25s;}
-  .mg-base{fill:var(--surface-2);stroke:var(--border);stroke-width:.8;stroke-linejoin:round;}
-  .mg-decor{fill:none;stroke:var(--border);stroke-width:1;stroke-linecap:round;opacity:.8;}
-  /* untrained (0 sets) reads as the same quiet tone as the plain silhouette —
-     see bodygraph.js's file header on why this differs from coach.js's bars */
-  .mg.untrained{fill:var(--surface-2);}
-  .mg.vol-under{fill:var(--gold);fill-opacity:.85;}
-  .mg.vol-good{fill:var(--good);fill-opacity:.95;}
-  .mg.vol-high{fill:var(--danger);}
+  /* every region is drawn; only trained ones get an inline fill from bgFill() */
+  /* an untrained region still has to read as anatomy, not as background —
+     it is the majority of the figure most weeks */
+  .mg{fill:#2b3446;stroke:var(--bg);stroke-width:2;transition:fill .3s ease;}
+  .mg-on{stroke:var(--bg);stroke-width:2;}
+  /* head, hands, feet, joints — they carry the figure, never the data */
+  .mg-inert{fill:#222a39;stroke:var(--bg);stroke-width:2;}
 
   .bodygraph-legend{
-    display:flex;justify-content:center;gap:14px;margin-top:12px;
-    font-size:11px;color:var(--muted);font-weight:600;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    flex-wrap:wrap;margin-top:10px;
   }
-  .bodygraph-legend-item{display:inline-flex;align-items:center;gap:5px;}
-  .bodygraph-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
-  .bodygraph-dot.vol-under{background:var(--gold);}
-  .bodygraph-dot.vol-good{background:var(--good);}
-  .bodygraph-dot.vol-high{background:var(--danger);}
+  .bodygraph-legend-cap{font-size:10px;color:var(--faint);font-weight:600;}
+  .bodygraph-ramp{display:inline-flex;border-radius:999px;overflow:hidden;}
+  .bodygraph-ramp i{width:16px;height:8px;display:block;}
+  .bodygraph-legend-note{
+    font-size:10px;color:var(--faint);font-weight:600;
+    width:100%;text-align:center;
+  }
   .bodygraph-other{
     margin-top:10px;font-size:11px;color:var(--faint);text-align:center;
   }
@@ -737,11 +714,10 @@
     padding:3px 8px;border-radius:999px;
   }
   .bodygraph-count b{font-weight:800;font-variant-numeric:tabular-nums;}
-  /* must track .mg.vol-* / .bodygraph-dot.vol-* above — a chip that disagrees
-     with the shape it describes is worse than no chip */
-  .bodygraph-count.vol-under b{color:var(--gold);}
-  .bodygraph-count.vol-good  b{color:var(--good);}
-  .bodygraph-count.vol-high  b{color:var(--danger);}
+  /* the swatch is filled from bgFill() — the same function that fills the
+     shape — so a chip can't drift out of agreement with its own muscle */
+  .bodygraph-count i{width:7px;height:7px;border-radius:50%;display:inline-block;}
+  .bodygraph-count b{color:var(--text);}
   .bodygraph-empty{
     text-align:center;font-size:12px;color:var(--faint);margin:10px 0 2px;
   }

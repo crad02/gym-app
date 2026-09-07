@@ -110,7 +110,7 @@ function heroCardHTML(){
 // bodygraph.js's file header) — hiding the card on a fresh week would just
 // replace "quiet" with "missing", which reads as broken, not calm.
 function bodygraphCardHTML(){
-  return bodygraphHTML(weekWorkSetsByMuscle(), { compact:true, legend:false, heading:"THIS WEEK'S MUSCLES" });
+  return bodygraphHTML(weekRegionLoad(), { compact:true, legend:false, heading:"THIS WEEK'S MUSCLES" });
 }
 
 /* ---------- warmth: a glance, not a wall ---------- */

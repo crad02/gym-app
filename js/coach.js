@@ -43,8 +43,7 @@ function weekWorkSetsByMuscle(){
 // loads after this file — see index.html) replaced it in renderCoach() below
 // with one whole-body figure that doesn't depend on activeCoachGroup, using
 // the exact same weekWorkSetsByMuscle() / VOL_MIN / VOL_HIGH this file still
-// owns. Its CSS (.vol-card, .vol-row, …) is unused now but left in place —
-// css/app.css is append-only in this pass.
+// owns. Its CSS went with it.
 
 // Match a lab-provided app exercise name to the user's own exercise list.
 function appExerciseByName(name){
@@ -202,7 +201,7 @@ function renderCoach(){
   // the first lab run, so logging gives immediate feedback). Whole-body, not
   // scoped to activeCoachGroup — see the comment above where volumeStripHTML()
   // used to be defined for why that was replaced rather than kept alongside.
-  const volHTML = bodygraphHTML(weekWorkSetsByMuscle(), { heading:"THIS WEEK · hard sets" });
+  const volHTML = bodygraphHTML(weekRegionLoad(), { heading:"THIS WEEK · hard sets" });
 
   if(!plan){
     body.innerHTML = volHTML + (!currentUser
